@@ -12,6 +12,14 @@
 - 보안: Firebase Authentication, 역할 기반 Firestore Rules, 원자적 결제, 거래 원장 수정·삭제 차단
 - 반응형 UI: 휴대전화·태블릿·PC 지원
 
+## 폴더 구조
+
+- `frontend/index.html`: 프런트엔드 진입 페이지
+- `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
+- `frontend/css/`: 화면 스타일
+- `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
+- `dist/`: production build 결과(Firebase Hosting 배포 대상)
+
 ## 1. Firebase 최초 설정
 
 1. [Firebase Console](https://console.firebase.google.com/project/hs-bokseong/overview)에서 `hs-bokseong` 프로젝트를 엽니다.

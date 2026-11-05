@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {createUserWithEmailAndPassword,onAuthStateChanged,signInWithEmailAndPassword,signOut} from 'firebase/auth';
 import {addDoc,collection,doc,getDoc,getDocs,limit,onSnapshot,orderBy,query,runTransaction,serverTimestamp,setDoc,updateDoc,where} from 'firebase/firestore';
 import {Banknote,Building2,History,LogOut,QrCode,RefreshCw,ShieldCheck,UserRound,WalletCards} from 'lucide-react';
-import {QRCodeSVG} from 'qrcode.react';import {auth,db} from './firebase';import {friendlyError,validAmount,won} from './domain';import './style.css';
+import {QRCodeSVG} from 'qrcode.react';import {auth,db} from './firebase';import {friendlyError,validAmount,won} from './domain';import '../css/style.css';
 
 const roles={student:'학생',booth:'부스',admin:'관리자'},types={payment:'결제',topup:'충전',refund:'환불'};
 function useSession(){const [state,setState]=useState({loading:true,user:null,profile:null});useEffect(()=>onAuthStateChanged(auth,async user=>{if(!user)return setState({loading:false,user:null,profile:null});const s=await getDoc(doc(db,'users',user.uid));setState({loading:false,user,profile:s.exists()?{id:s.id,...s.data()}:null})}),[]);return [state,p=>setState(s=>({...s,profile:p}))]}
