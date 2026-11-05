@@ -1,0 +1,3 @@
+export const won=n=>`${Number(n||0).toLocaleString('ko-KR')}원`;
+export function validAmount(value,max=1_000_000){const n=Number(value);return Number.isInteger(n)&&n>0&&n<=max?n:null}
+export function friendlyError(error){const code=error?.code||'';if(code.includes('invalid-credential'))return '이메일 또는 비밀번호를 확인해 주세요.';if(code.includes('email-already-in-use'))return '이미 가입된 이메일입니다.';if(code.includes('weak-password'))return '비밀번호는 6자 이상이어야 합니다.';if(code.includes('permission-denied'))return '권한이 없거나 처리 조건이 맞지 않습니다.';if(code.includes('network'))return '네트워크 연결을 확인해 주세요.';return error?.message||'처리 중 오류가 발생했습니다.'}

@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn(){ return request.auth != null; }
+    function me(){ return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function admin(){ return signedIn() && me().data.role == 'admin' && me().data.status == 'active'; }
+    function active(){ return signedIn() && me().data.status == 'active'; }
+    function payTx(id){ return getAfter(/databases/$(database)/documents/transactions/$(id)); }
+    function validPayUpdate(uid){
+      let id=request.resource.data.lastTransactionId;
+      let tx=payTx(id).data;
+      return active() && tx.type=='payment' && tx.payerUid==request.auth.uid && tx.amount is int && tx.amount>0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance','lastTransactionId','updatedAt'])
+        && ((uid==tx.payerUid && request.resource.data.balance==resource.data.balance-tx.amount)
+          || (uid==tx.boothUid && resource.data.role=='booth' && request.resource.data.balance==resource.data.balance+tx.amount));
+    }
+    match /users/{uid} {
+      allow create: if signedIn() && uid==request.auth.uid
+        && request.resource.data.role=='student' && request.resource.data.status=='pending'
+        && request.resource.data.balance==0
+        && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','createdAt','updatedAt']);
+      allow get: if signedIn() && (uid==request.auth.uid || admin());
+      allow list: if admin() || (active() && resource.data.role=='booth' && resource.data.status=='active');
+      allow update: if admin() || validPayUpdate(uid);
+      allow delete: if admin();
+    }
+    match /transactions/{id} {
+      allow create: if admin() || (active() && request.resource.data.type=='payment'
+        && request.resource.data.payerUid==request.auth.uid && request.resource.data.amount is int
+        && request.resource.data.amount>0 && request.resource.data.amount<=1000000
+        && request.resource.data.participantUids==[request.auth.uid,request.resource.data.boothUid]
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.lastTransactionId==id
+        && getAfter(/databases/$(database)/documents/users/$(request.resource.data.boothUid)).data.lastTransactionId==id
+        && request.resource.data.keys().hasOnly(['type','payerUid','boothUid','amount','memo','participantUids','createdAt']));
+      allow read: if admin() || (signedIn() && request.auth.uid in resource.data.participantUids);
+      allow update,delete: if false;
+    }
+    match /requests/{id} {
+      allow create: if active() && request.resource.data.uid==request.auth.uid
+        && request.resource.data.type in ['topup','refund'] && request.resource.data.status=='pending'
+        && request.resource.data.amount is int && request.resource.data.amount>0 && request.resource.data.amount<=1000000
+        && request.resource.data.keys().hasOnly(['uid','type','amount','status','createdAt']);
+      allow read: if admin() || (signedIn() && resource.data.uid==request.auth.uid);
+      allow update,delete: if admin();
+    }
+    match /settings/{id} { allow read: if signedIn(); allow write: if admin(); }
+    match /{document=**} { allow read,write: if false; }
+  }
+}

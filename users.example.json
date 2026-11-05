@@ -1,0 +1,4 @@
+[
+  {"email":"admin@example.com","password":"CHANGE_ME_123!","name":"축제 관리자","role":"admin"},
+  {"email":"booth1@example.com","password":"CHANGE_ME_123!","name":"2학년 1반 부스","role":"booth"}
+]
