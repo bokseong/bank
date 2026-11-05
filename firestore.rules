@@ -26,7 +26,10 @@ service cloud.firestore {
             && request.resource.data.balance==resource.data.balance+tx.amount));
     }
     match /users/{uid} {
-      allow create: if false;
+      allow create: if signedIn() && uid==request.auth.uid
+        && request.resource.data.role=='student' && request.resource.data.status=='pending'
+        && request.resource.data.balance==0 && request.resource.data.requirePaymentPassword==true
+        && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','requirePaymentPassword','createdAt','updatedAt']);
       allow get: if signedIn() && (uid==request.auth.uid || admin());
       allow list: if admin() || (active() && resource.data.role=='booth' && resource.data.status=='active');
       allow update: if admin() || validPayUpdate(uid)

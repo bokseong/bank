@@ -15,6 +15,13 @@
 ## 폴더 구조
 
 - `frontend/index.html`: 프런트엔드 진입 페이지
+- `frontend/signup.html`: 회원가입 페이지
+- `frontend/wallet.html`: 학생 지갑 페이지
+- `frontend/payment.html`: QR 결제 페이지
+- `frontend/history.html`: 거래 내역 페이지
+- `frontend/settings.html`: 사용자 정보·설정 페이지
+- `frontend/booth.html`: 부스 결제 QR 페이지
+- `frontend/admin.html`: 관리자 운영 페이지
 - `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
 - `frontend/css/`: 화면 스타일
 - `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
@@ -49,7 +56,7 @@ Remove-Item Env:\GOOGLE_APPLICATION_CREDENTIALS
 
 `users.json`은 `.gitignore`에 의해 저장소에 올라가지 않습니다. 계정 준비가 끝나면 안전하게 별도 보관하거나 삭제하세요. 최초 로그인 후 임시 비밀번호를 변경하는 운영 절차를 권장합니다.
 
-`provision` 명령은 `settings/config` 기본 운영 설정도 함께 생성합니다. 일반 사용자의 웹 회원가입은 제공하지 않으며 관리자만 계정을 발급합니다.
+`provision` 명령은 관리자·부스 계정과 `settings/config` 기본 운영 설정을 생성합니다. 학생은 `signup.html`에서 가입 신청할 수 있으며 관리자 승인 후 이용할 수 있습니다.
 
 ## 3. 테스트 및 GitHub Pages 배포
 
