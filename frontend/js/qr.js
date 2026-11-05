@@ -1,0 +1,2 @@
+export function makePaymentQr({boothId,boothName,amount,memo=''}){return JSON.stringify({v:1,type:'festival-payment',boothId,boothName,amount:Number(amount),memo:String(memo).slice(0,40)})}
+export function parsePaymentQr(text){let value;try{value=JSON.parse(text)}catch{throw new Error('축제은행 결제 QR이 아닙니다.')}if(value?.v!==1||value?.type!=='festival-payment'||typeof value.boothId!=='string'||!Number.isInteger(value.amount)||value.amount<=0)throw new Error('올바르지 않은 결제 QR입니다.');return value}
