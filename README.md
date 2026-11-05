@@ -6,7 +6,7 @@
 
 ## 운영 기능
 
-- 학생: 할당 계정 로그인, 잔액 확인, 카메라 QR 결제, 충전·환불 신청, 거래 내역, 개인 설정
+- 학생: 이메일·Google·GitHub 로그인/회원가입, 잔액 확인, 카메라 QR 결제, 충전·환불 신청, 거래 내역, 개인 설정
 - 부스: 금액·상품명을 포함한 결제 QR 생성, 실시간 누적 매출, 거래 내역
 - 관리자: 운영 시간, 전체 공지, 결제·충전·환불 사용 여부, 결제 한도, 비밀번호 정책, 신청 승인, 계정·거래 현황
 - 보안: Firebase Authentication 재인증, 역할 기반 Firestore Rules, 원자적 결제, 거래 원장 수정·삭제 차단
@@ -30,7 +30,7 @@
 ## 1. Firebase 최초 설정
 
 1. [Firebase Console](https://console.firebase.google.com/project/hs-bokseong/overview)에서 `hs-bokseong` 프로젝트를 엽니다.
-2. **Authentication → Sign-in method**에서 `Email/Password`를 활성화합니다.
+2. **Authentication → Sign-in method**에서 `Email/Password`, `Google`, `GitHub`를 활성화하고 **Settings → Authorized domains**에 `bokseong.github.io`를 추가합니다.
 3. **Firestore Database**를 Production mode로 생성합니다. 위치는 한 번 정하면 변경할 수 없으므로 학교와 가까운 위치를 선택합니다.
 4. **Project settings → Service accounts → Generate new private key**에서 관리자 계정 준비용 JSON을 내려받습니다. 저장소 안에 넣거나 Git에 올리지 마세요.
 5. Node.js 20 이상과 Firebase CLI를 준비합니다.
