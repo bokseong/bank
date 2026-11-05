@@ -51,18 +51,31 @@ Remove-Item Env:\GOOGLE_APPLICATION_CREDENTIALS
 
 `provision` 명령은 `settings/config` 기본 운영 설정도 함께 생성합니다. 일반 사용자의 웹 회원가입은 제공하지 않으며 관리자만 계정을 발급합니다.
 
-## 3. 테스트 및 배포
+## 3. 테스트 및 GitHub Pages 배포
 
 ```powershell
 npm test
 npm run build
-npx firebase-tools login
-npm run deploy
 ```
 
-배포 명령은 테스트와 빌드를 다시 실행한 뒤 Hosting, Firestore Rules, indexes를 `hs-bokseong` 프로젝트에 배포합니다. 완료 후 출력되는 `https://hs-bokseong.web.app` 주소로 접속합니다.
+`main` 브랜치에 push하면 `.github/workflows/deploy-pages.yml`이 테스트와 production build를 수행한 뒤 GitHub Pages에 자동 배포합니다.
 
-QR 카메라 인식은 보안 연결에서만 사용할 수 있으므로 실제 기기 점검은 Firebase Hosting의 HTTPS 주소에서 진행해야 합니다. 브라우저의 카메라 권한 요청을 허용해야 합니다.
+서비스 주소:
+
+```text
+https://bokseong.github.io/bank/
+```
+
+Firebase Console의 **Authentication → Settings → Authorized domains**에 `bokseong.github.io`를 추가해야 GitHub Pages에서 로그인이 정상 작동합니다.
+
+Firestore Rules와 indexes를 변경했을 때만 별도로 실행합니다.
+
+```powershell
+npx firebase-tools login
+npm run deploy:firestore
+```
+
+QR 카메라 인식은 보안 연결에서만 사용할 수 있으므로 실제 기기 점검은 GitHub Pages의 HTTPS 주소에서 진행해야 합니다. 브라우저의 카메라 권한 요청을 허용해야 합니다.
 
 로컬 실행:
 
