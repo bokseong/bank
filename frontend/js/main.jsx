@@ -273,6 +273,71 @@ function LegalModal({ type, onClose }) {
     </div>
   );
 }
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <p>© Suncheon Bokseong High School | All rights reserved.</p>
+      <p>
+        Designed by{" "}
+        <a href="https://github.com/jw-astro09" target="_blank" rel="noreferrer">
+          jw-astro09
+        </a>
+      </p>
+      <a className="about-button" href={`${base}about.html`}>
+        이 사이트에 대해 알아보기
+      </a>
+    </footer>
+  );
+}
+function About() {
+  const [legal, setLegal] = useState({ terms: "", privacy: "" });
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${base}signup.html`, { cache: "no-store", signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("회원가입 페이지를 불러올 수 없습니다.");
+        return response.text();
+      })
+      .then((source) => {
+        const page = new DOMParser().parseFromString(source, "text/html");
+        setLegal({
+          terms: page.getElementById("terms-content")?.innerHTML || "",
+          privacy: page.getElementById("privacy-content")?.innerHTML || "",
+        });
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") setError(e.message);
+      });
+    return () => controller.abort();
+  }, []);
+  const contacts = document.getElementById("site-contact-content")?.innerHTML || "";
+  return (
+    <main className="about-page">
+      <header className="about-header">
+        <a className="brand" href={base}><Building2 />복성고 축제은행</a>
+        <a className="back-link" href={base}>로그인으로 돌아가기</a>
+      </header>
+      <div className="about-content">
+        <section className="about-intro">
+          <span>ABOUT THE SERVICE</span>
+          <h1>사이트 정보</h1>
+          <p>학교 축제에서 현금과 잔돈 사용을 줄이고, 교내 포인트로 충전·결제·정산을 관리하기 위한 서비스입니다.</p>
+        </section>
+        <section className="info-card">
+          <h2>운영 담당 및 환전소</h2>
+          <div dangerouslySetInnerHTML={{ __html: contacts }} />
+        </section>
+        {error && <div className="error">{error}</div>}
+        <section className="legal-grid" aria-live="polite">
+          <article className="info-card legal-body" dangerouslySetInnerHTML={{ __html: legal.terms || "<p>이용약관을 불러오는 중입니다…</p>" }} />
+          <article className="info-card legal-body" dangerouslySetInnerHTML={{ __html: legal.privacy || "<p>개인정보 수집 안내를 불러오는 중입니다…</p>" }} />
+        </section>
+        <p className="sync-note">이용약관과 개인정보 수집·이용 안내는 회원가입 페이지의 최신 내용과 자동으로 동기화됩니다.</p>
+      </div>
+    </main>
+  );
+}
 function Signup() {
   const [form, setForm] = useState({
       name: "",
@@ -1135,6 +1200,11 @@ function Admin({ config }) {
   );
 }
 function App() {
+  const page = location.pathname.split("/").pop() || "index.html";
+  if (page === "about.html") return <About />;
+  return <AuthenticatedApp />;
+}
+function AuthenticatedApp() {
   const { loading, user, profile, config } = useSession();
   const page = location.pathname.split("/").pop() || "index.html";
   if (loading) return <div className="loading">불러오는 중…</div>;
@@ -1264,14 +1334,12 @@ function App() {
         </nav>
       )}
       <main className="content">{content}</main>
-      <footer>
-        복성고등학교 축제 전용 · 실제 현금이 아닌 교내 포인트 시스템
-      </footer>
     </div>
   );
 }
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <App />
+    <SiteFooter />
   </React.StrictMode>,
 );
