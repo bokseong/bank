@@ -5,7 +5,8 @@ service cloud.firestore {
     function userPath(uid){ return /databases/$(database)/documents/users/$(uid); }
     function me(){ return get(userPath(request.auth.uid)); }
     function config(){ return get(/databases/$(database)/documents/settings/config).data; }
-    function admin(){ return signedIn() && me().data.role == 'admin' && me().data.status == 'active'; }
+    function rootAdmin(){ return signedIn() && request.auth.token.email == 'github.jwastro09@gmail.com' && request.auth.token.email_verified == true; }
+    function admin(){ return rootAdmin() || (signedIn() && me().data.role == 'admin' && me().data.status == 'active'); }
     function active(){ return signedIn() && me().data.status == 'active' && config().systemOpen == true; }
     function payTx(id){ return getAfter(/databases/$(database)/documents/transactions/$(id)); }
     function recentAuth(){ return request.time.toMillis() / 1000 - request.auth.token.auth_time < 300; }
@@ -26,10 +27,15 @@ service cloud.firestore {
             && request.resource.data.balance==resource.data.balance+tx.amount));
     }
     match /users/{uid} {
-      allow create: if signedIn() && uid==request.auth.uid
-        && request.resource.data.role=='student' && request.resource.data.status=='pending'
-        && request.resource.data.balance==0 && request.resource.data.requirePaymentPassword==true
-        && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','requirePaymentPassword','createdAt','updatedAt']);
+      allow create: if (rootAdmin() && uid==request.auth.uid
+          && request.resource.data.role=='admin' && request.resource.data.status=='active'
+          && request.resource.data.balance==0)
+        || (signedIn() && uid==request.auth.uid
+          && request.resource.data.role=='student' && request.resource.data.status=='pending'
+          && request.resource.data.balance==0 && request.resource.data.requirePaymentPassword==true
+          && request.resource.data.termsAcceptedAt==request.time
+          && request.resource.data.privacyAcceptedAt==request.time
+          && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','requirePaymentPassword','termsAcceptedAt','privacyAcceptedAt','termsVersion','privacyVersion','createdAt','updatedAt']));
       allow get: if signedIn() && (uid==request.auth.uid || admin());
       allow list: if admin() || (active() && resource.data.role=='booth' && resource.data.status=='active');
       allow update: if admin() || validPayUpdate(uid)

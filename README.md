@@ -25,7 +25,11 @@
 - `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
 - `frontend/css/`: 화면 스타일
 - `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
-- `dist/`: production build 결과(Firebase Hosting 배포 대상)
+- `dist/`: production build 결과(GitHub Pages 배포 대상)
+
+회원가입 이용약관과 개인정보 수집·이용 안내 본문은 `frontend/signup.html`의 `terms-content`, `privacy-content` 템플릿에 있습니다. JavaScript를 수정하지 않고 해당 HTML 본문만 편집할 수 있습니다.
+
+이메일이 검증된 `github.jwastro09@gmail.com` 계정은 최상위 관리자로 처리되며, 최초 로그인 시 관리자 프로필이 자동 생성됩니다.
 
 ## 1. Firebase 최초 설정
 
