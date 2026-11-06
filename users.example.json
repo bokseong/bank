@@ -1,4 +1,5 @@
 [
-  {"email":"admin@example.com","password":"CHANGE_ME_123!","name":"축제 관리자","role":"admin"},
-  {"email":"booth1@example.com","password":"CHANGE_ME_123!","name":"2학년 1반 부스","role":"booth"}
+  {"email":"admin1@example.com","password":"CHANGE_ME_123!","name":"1급 관리자","role":"admin1"},
+  {"email":"admin2@example.com","password":"CHANGE_ME_123!","name":"2급 관리자","role":"admin2"},
+  {"email":"shop1@example.com","password":"CHANGE_ME_123!","name":"2학년 1반 상점","role":"shop"}
 ]

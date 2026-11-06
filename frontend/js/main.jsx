@@ -14,6 +14,7 @@ import {
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   limit,
@@ -23,6 +24,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -43,17 +45,26 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { auth, db } from "./firebase";
 import { friendlyError, validAmount, won } from "./domain";
-import { makePaymentQr, parsePaymentQr } from "./qr";
+import { makeOrderQr, parseOrderQr } from "./qr";
 import "../css/style.css";
 
-const roles = { student: "학생", booth: "부스", admin: "관리자" },
-  types = { payment: "결제", topup: "충전", refund: "환불" };
+const roles = {
+    member: "일반회원",
+    shop: "상점",
+    admin1: "1급 관리자",
+    admin2: "2급 관리자",
+  },
+  types = { payment: "결제", topup: "충전", refund: "환불", adjustment: "포인트 조절" },
+  legacyRoles = { student: "member", booth: "shop", admin: "admin1" };
 const base = import.meta.env.BASE_URL;
 const googleProvider = new GoogleAuthProvider(),
   githubProvider = new GithubAuthProvider();
 const ROOT_ADMIN_EMAIL = "github.jwastro09@gmail.com";
 const isRootAdmin = (user) =>
   user?.emailVerified && user.email?.toLowerCase() === ROOT_ADMIN_EMAIL;
+const normalizeRole = (role) => legacyRoles[role] || role || "member";
+const isAdmin1 = (profile) => profile?.role === "admin1";
+const isAdmin2 = (profile) => profile?.role === "admin2" || isAdmin1(profile);
 const defaultConfig = {
   festivalName: "복성고 축제은행",
   announcement: "",
@@ -88,7 +99,7 @@ function useSession() {
           await setDoc(ref, {
             name: user.displayName || "최상위 관리자",
             studentId: "ADMIN",
-            role: "admin",
+            role: "admin1",
             status: "active",
             balance: 0,
             createdAt: serverTimestamp(),
@@ -100,7 +111,13 @@ function useSession() {
           ...x,
           loading: false,
           user,
-          profile: p.exists() ? { id: p.id, ...p.data() } : null,
+          profile: p.exists()
+            ? {
+                id: p.id,
+                ...p.data(),
+                role: isRootAdmin(user) ? "admin1" : normalizeRole(p.data().role),
+              }
+            : null,
         }));
       }),
     [],
@@ -111,7 +128,14 @@ function useSession() {
       doc(db, "users", s.user.uid),
       (p) =>
         p.exists() &&
-        setS((x) => ({ ...x, profile: { id: p.id, ...p.data() } })),
+        setS((x) => ({
+          ...x,
+          profile: {
+            id: p.id,
+            ...p.data(),
+            role: isRootAdmin(s.user) ? "admin1" : normalizeRole(p.data().role),
+          },
+        })),
     );
     const b = onSnapshot(doc(db, "settings", "config"), (c) =>
       setS((x) => ({
@@ -339,26 +363,13 @@ function About() {
   );
 }
 function HomeDashboard({ profile, config }) {
-  const destinations = [
-    {
-      href: profile.role === "admin" ? "admin.html" : profile.role === "booth" ? "booth.html" : "wallet.html",
-      icon: profile.role === "admin" ? ShieldCheck : WalletCards,
-      title: profile.role === "admin" ? "관리자 페이지" : profile.role === "booth" ? "부스 거래 관리" : "내 지갑",
-      description: profile.role === "admin" ? "계정 승인, 운영 설정과 전체 현황을 관리합니다." : profile.role === "booth" ? "결제 QR을 표시하고 부스 거래를 관리합니다." : "잔액과 충전·환불 요청을 확인합니다.",
-    },
-    {
-      href: "history.html",
-      icon: History,
-      title: "거래 페이지",
-      description: profile.role === "admin" ? "전체 충전·결제·환불 기록을 조회합니다." : "내 계정과 관련된 거래 기록을 조회합니다.",
-    },
-    {
-      href: "settings.html",
-      icon: UserRound,
-      title: "내 정보 조회",
-      description: "계정 정보와 결제 비밀번호 설정을 확인합니다.",
-    },
-  ];
+  const destinations = isAdmin1(profile)
+    ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "전체 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+    : profile.role === "admin2"
+      ? [{ href: "points.html", icon: Banknote, title: "포인트 조절", description: "지급·차감 내역을 기록합니다." }, { href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "포인트 조절과 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+      : profile.role === "shop"
+        ? [{ href: "booth.html", icon: QrCode, title: "상점 관리", description: "상품·가격을 등록하고 주문 QR을 만듭니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "상점 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+        : [{ href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 임시 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "내 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }];
   return (
     <>
       <section className="home-welcome">
@@ -395,7 +406,7 @@ function Signup() {
   const profileData = () => ({
     name: form.name.trim(),
     studentId: form.studentId.trim(),
-    role: "student",
+    role: "member",
     status: "pending",
     balance: 0,
     requirePaymentPassword: true,
@@ -574,7 +585,7 @@ function Signup() {
     </main>
   );
 }
-function HistoryList({ uid, admin = false }) {
+function HistoryList({ uid, admin = false, canPay = false }) {
   const [items, setItems] = useState([]);
   useEffect(() => {
     const q = admin
@@ -598,6 +609,7 @@ function HistoryList({ uid, admin = false }) {
   return (
     <section className="panel">
       <h2>거래 내역</h2>
+      {canPay && <a className="pay-now" href={`${base}payment.html`}><QrCode /> 결제하기</a>}
       <div className="list">
         {!items.length && (
           <div className="empty">아직 거래 내역이 없습니다.</div>
@@ -623,6 +635,9 @@ function HistoryList({ uid, admin = false }) {
       </div>
     </section>
   );
+}
+function AccessDenied() {
+  return <main className="pending"><ShieldCheck /><h1>접근 권한이 없습니다</h1><p>이 페이지는 현재 계정의 권한으로 이용할 수 없습니다.</p><a className="about-button" href={`${base}index.html`}>홈으로 돌아가기</a></main>;
 }
 function RequestBox({ profile, type, enabled }) {
   const [amount, setAmount] = useState(""),
@@ -685,7 +700,7 @@ function Scanner({ onRead, onClose }) {
             live = false;
             ctl.stop();
             try {
-              onRead(parsePaymentQr(result.getText()));
+              onRead(parseOrderQr(result.getText()));
             } catch (e) {
               setError(e.message);
               live = true;
@@ -727,14 +742,26 @@ function Pay({ profile, config }) {
     [msg, setMsg] = useState("");
   const needPassword =
     config.forcePaymentPassword || profile.requirePaymentPassword !== false;
-  function read(q) {
+  async function read(q) {
     setScanning(false);
-    if (q.amount < config.minPayment || q.amount > config.maxPayment)
-      return setMsg(
-        `결제 가능 금액은 ${won(config.minPayment)}~${won(config.maxPayment)}입니다.`,
-      );
-    setInvoice(q);
-    setMsg("");
+    setBusy(true);
+    try {
+      const order = await getDoc(doc(db, "orders", q.orderId));
+      if (!order.exists()) throw new Error("존재하지 않는 주문 QR입니다.");
+      const data = order.data();
+      if (data.shopUid !== q.shopId || data.status !== "pending")
+        throw new Error("이미 사용되었거나 사용할 수 없는 주문 QR입니다.");
+      if (data.expiresAt?.toMillis?.() <= Date.now())
+        throw new Error("만료된 주문 QR입니다.");
+      if (data.amount < config.minPayment || data.amount > config.maxPayment)
+        throw new Error(`결제 가능 금액은 ${won(config.minPayment)}~${won(config.maxPayment)}입니다.`);
+      setInvoice({ id: order.id, ...data });
+      setMsg("");
+    } catch (e) {
+      setMsg(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
   }
   async function pay(e) {
     e.preventDefault();
@@ -753,16 +780,25 @@ function Pay({ profile, config }) {
       const txRef = doc(collection(db, "transactions"));
       await runTransaction(db, async (tx) => {
         const pr = doc(db, "users", profile.id),
-          br = doc(db, "users", invoice.boothId);
-        const [p, b] = await Promise.all([tx.get(pr), tx.get(br)]);
+          br = doc(db, "users", invoice.shopUid),
+          or = doc(db, "orders", invoice.id);
+        const [p, b, o] = await Promise.all([tx.get(pr), tx.get(br), tx.get(or)]);
         if (!p.exists() || p.data().balance < invoice.amount)
           throw new Error("잔액이 부족합니다.");
         if (
           !b.exists() ||
-          b.data().role !== "booth" ||
+          !["shop", "booth"].includes(b.data().role) ||
           b.data().status !== "active"
         )
-          throw new Error("사용할 수 없는 부스입니다.");
+          throw new Error("사용할 수 없는 상점입니다.");
+        if (
+          !o.exists() ||
+          o.data().status !== "pending" ||
+          o.data().shopUid !== invoice.shopUid ||
+          o.data().amount !== invoice.amount ||
+          o.data().expiresAt?.toMillis?.() <= Date.now()
+        )
+          throw new Error("이미 사용되었거나 만료된 주문입니다.");
         tx.update(pr, {
           balance: p.data().balance - invoice.amount,
           lastTransactionId: txRef.id,
@@ -773,14 +809,21 @@ function Pay({ profile, config }) {
           lastTransactionId: txRef.id,
           updatedAt: serverTimestamp(),
         });
+        tx.update(or, {
+          status: "paid",
+          payerUid: profile.id,
+          transactionId: txRef.id,
+          paidAt: serverTimestamp(),
+        });
         tx.set(txRef, {
           type: "payment",
           payerUid: profile.id,
-          boothUid: invoice.boothId,
+          boothUid: invoice.shopUid,
           boothName: b.data().name,
           amount: invoice.amount,
-          memo: invoice.memo || "",
-          participantUids: [profile.id, invoice.boothId],
+          memo: invoice.items.map((item) => item.name).join(", ").slice(0, 120),
+          orderId: invoice.id,
+          participantUids: [profile.id, invoice.shopUid],
           createdAt: serverTimestamp(),
         });
       });
@@ -814,14 +857,14 @@ function Pay({ profile, config }) {
           ) : (
             <form onSubmit={pay} className="invoice">
               <div className="invoice-title">
-                <span>결제 부스</span>
-                <strong>{invoice.boothName}</strong>
+                <span>결제 상점</span>
+                <strong>{invoice.shopName}</strong>
               </div>
               <div className="invoice-amount">
                 <span>결제 금액</span>
                 <strong>{won(invoice.amount)}</strong>
               </div>
-              {invoice.memo && <p>상품: {invoice.memo}</p>}
+              <p>상품: {invoice.items.map((item) => `${item.name} ${item.quantity}개`).join(", ")}</p>
               {needPassword && (
                 <label>
                   결제 비밀번호
@@ -853,19 +896,76 @@ function Pay({ profile, config }) {
     </section>
   );
 }
-function Booth({ profile, config }) {
-  const [amount, setAmount] = useState(""),
-    [memo, setMemo] = useState("");
-  const n = validAmount(amount, config.maxPayment);
-  const valid = n && n >= config.minPayment;
-  const payload = valid
-    ? makePaymentQr({
-        boothId: profile.id,
-        boothName: profile.name,
-        amount: n,
-        memo,
-      })
-    : "";
+function Shop({ profile, config }) {
+  const [products, setProducts] = useState([]),
+    [cart, setCart] = useState([]),
+    [form, setForm] = useState({ name: "", price: "" }),
+    [order, setOrder] = useState(null),
+    [msg, setMsg] = useState("");
+  useEffect(
+    () =>
+      onSnapshot(
+        query(collection(db, "shops", profile.id, "products"), orderBy("createdAt", "desc")),
+        (s) => setProducts(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+        () => setMsg("상품 목록을 불러올 수 없습니다."),
+      ),
+    [profile.id],
+  );
+  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  async function addProduct(e) {
+    e.preventDefault();
+    const price = validAmount(form.price, config.maxPayment);
+    if (!form.name.trim() || !price) return setMsg("상품명과 올바른 가격을 입력하세요.");
+    try {
+      await addDoc(collection(db, "shops", profile.id, "products"), {
+        name: form.name.trim().slice(0, 40),
+        price,
+        active: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setForm({ name: "", price: "" });
+      setMsg("상품을 등록했습니다.");
+    } catch (e) {
+      setMsg(friendlyError(e));
+    }
+  }
+  function addToCart(product) {
+    if (!product.active) return;
+    setOrder(null);
+    setCart((items) => {
+      const found = items.find((item) => item.id === product.id);
+      return found
+        ? items.map((item) => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)
+        : [...items, { id: product.id, name: product.name, price: product.price, quantity: 1 }];
+    });
+  }
+  function changeQuantity(id, delta) {
+    setOrder(null);
+    setCart((items) => items
+      .map((item) => item.id === id ? { ...item, quantity: item.quantity + delta } : item)
+      .filter((item) => item.quantity > 0));
+  }
+  async function createOrder() {
+    if (!cart.length || !config.paymentsEnabled) return;
+    if (total < config.minPayment || total > config.maxPayment)
+      return setMsg(`주문 금액은 ${won(config.minPayment)}~${won(config.maxPayment)}여야 합니다.`);
+    try {
+      const ref = await addDoc(collection(db, "orders"), {
+        shopUid: profile.id,
+        shopName: profile.name,
+        items: cart.map(({ id, name, price, quantity }) => ({ id, name, price, quantity })),
+        amount: total,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
+      });
+      setOrder({ id: ref.id, amount: total });
+      setMsg("5분 동안 사용할 수 있는 주문 QR을 만들었습니다.");
+    } catch (e) {
+      setMsg(friendlyError(e));
+    }
+  }
   return (
     <>
       <section className="balance">
@@ -873,49 +973,48 @@ function Booth({ profile, config }) {
         <strong>{won(profile.balance)}</strong>
         <small>{profile.name}</small>
       </section>
+      <section className="panel shop-products">
+        <h2>상품 및 가격 등록</h2>
+        <form className="product-form" onSubmit={addProduct}>
+          <input maxLength="40" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="상품명" />
+          <input inputMode="numeric" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value.replace(/\D/g, "") })} placeholder="가격" />
+          <button>상품 등록</button>
+        </form>
+        <div className="product-list">
+          {!products.length && <div className="empty">등록된 상품이 없습니다.</div>}
+          {products.map((product) => (
+            <div className="row" key={product.id}>
+              <div><b>{product.name}</b><small>{won(product.price)} · {product.active === false ? "판매 중지" : "판매 중"}</small></div>
+              <button className="secondary" onClick={() => addToCart(product)} disabled={product.active === false}>주문 추가</button>
+              <button className="danger" onClick={() => deleteDoc(doc(db, "shops", profile.id, "products", product.id))}>삭제</button>
+            </div>
+          ))}
+        </div>
+      </section>
       <section className="panel booth-pay">
-        <h2>결제 QR 생성</h2>
+        <h2>주문 QR 생성</h2>
         <div className="booth-grid">
           <div>
-            <label>
-              결제 금액
-              <div className="amount">
-                <input
-                  inputMode="numeric"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))}
-                  placeholder="0"
-                />
-                <span>원</span>
-              </div>
-            </label>
-            <label>
-              상품명·메모
-              <input
-                maxLength="40"
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
-                placeholder="예: 떡볶이 1개"
-              />
-            </label>
-            <small>
-              {won(config.minPayment)}~{won(config.maxPayment)} 범위에서 생성할
-              수 있습니다.
-            </small>
+            <h3>현재 주문</h3>
+            {!cart.length && <p className="empty">위 상품에서 주문할 항목을 추가하세요.</p>}
+            {cart.map((item) => <div className="cart-row" key={item.id}><span>{item.name}</span><span>{won(item.price)}</span><button className="secondary" onClick={() => changeQuantity(item.id, -1)}>-</button><b>{item.quantity}</b><button className="secondary" onClick={() => changeQuantity(item.id, 1)}>+</button></div>)}
+            <div className="cart-total"><span>결제 금액</span><strong>{won(total)}</strong></div>
+            <button disabled={!cart.length || !config.paymentsEnabled} onClick={createOrder}>임시 주문 QR 만들기</button>
+            <small>QR은 생성 시점부터 5분 동안 한 번만 결제할 수 있습니다.</small>
           </div>
           <div className="qr-box">
-            {valid && config.paymentsEnabled ? (
+            {order && config.paymentsEnabled ? (
               <>
-                <QRCodeSVG value={payload} size={230} level="M" />
-                <strong>{won(n)}</strong>
-                <span>학생이 축제은행의 QR 결제로 스캔합니다.</span>
+                <QRCodeSVG value={makeOrderQr({ orderId: order.id, shopId: profile.id })} size={230} level="M" />
+                <strong>{won(order.amount)}</strong>
+                <span>학생이 QR 결제 페이지에서 스캔합니다.</span>
               </>
             ) : (
               <div className="qr-placeholder">
                 <QrCode />
                 <span>
                   {config.paymentsEnabled
-                    ? "금액을 입력하세요."
+                    ? "주문을 만든 뒤 QR을 표시합니다."
                     : "현재 결제가 중지됨"}
                 </span>
               </div>
@@ -923,9 +1022,46 @@ function Booth({ profile, config }) {
           </div>
         </div>
       </section>
+      {msg && <p className="notice">{msg}</p>}
       <HistoryList uid={profile.id} />
     </>
   );
+}
+function PointControl({ profile }) {
+  const [users, setUsers] = useState([]),
+    [form, setForm] = useState({ uid: "", amount: "", memo: "" }),
+    [msg, setMsg] = useState("");
+  useEffect(
+    () => onSnapshot(query(collection(db, "users"), orderBy("name")), (s) => setUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => setMsg("계정 목록을 불러올 수 없습니다.")),
+    [],
+  );
+  async function adjust(e) {
+    e.preventDefault();
+    const amount = Number(form.amount);
+    if (!form.uid || !Number.isInteger(amount) || amount === 0)
+      return setMsg("대상과 0이 아닌 정수 조절 금액을 입력하세요.");
+    try {
+      await runTransaction(db, async (tx) => {
+        const userRef = doc(db, "users", form.uid), txRef = doc(collection(db, "transactions"));
+        const user = await tx.get(userRef);
+        if (!user.exists()) throw new Error("대상 계정을 찾을 수 없습니다.");
+        if (user.data().balance + amount < 0) throw new Error("잔액보다 많이 차감할 수 없습니다.");
+        tx.update(userRef, { balance: user.data().balance + amount, lastTransactionId: txRef.id, updatedAt: serverTimestamp() });
+        tx.set(txRef, {
+          type: "adjustment", uid: form.uid, amount, memo: form.memo.trim().slice(0, 80),
+          participantUids: [form.uid], processedBy: profile.id, createdAt: serverTimestamp(),
+        });
+      });
+      setForm({ uid: "", amount: "", memo: "" });
+      setMsg("포인트 조절을 기록했습니다.");
+    } catch (e) { setMsg(friendlyError(e)); }
+  }
+  return <section className="panel point-control"><h2>포인트 조절</h2><p>양수는 지급, 음수는 차감입니다. 모든 조절은 거래 내역에 남습니다.</p><form onSubmit={adjust}>
+    <label>대상 계정<select required value={form.uid} onChange={(e) => setForm({ ...form, uid: e.target.value })}><option value="">선택하세요</option>{users.filter((u) => u.status === "active").map((u) => <option key={u.id} value={u.id}>{u.name} · {roles[normalizeRole(u.role)] || u.role} · {won(u.balance)}</option>)}</select></label>
+    <label>조절 금액<input required inputMode="numeric" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d-]/g, "") })} placeholder="예: 1000 또는 -1000" /></label>
+    <label>사유<input maxLength="80" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="예: 환전소 수기 정산" /></label>
+    <button>포인트 조절 저장</button>
+  </form>{msg && <p className="notice">{msg}</p>}</section>;
 }
 function UserSettings({ profile, config }) {
   const [msg, setMsg] = useState("");
@@ -1025,6 +1161,12 @@ function Admin({ config }) {
     } catch (e) {
       setMsg(friendlyError(e));
     }
+  }
+  async function changeRole(u, role) {
+    try {
+      await updateDoc(doc(db, "users", u.id), { role, updatedAt: serverTimestamp() });
+      setMsg(`${u.name} 계정의 권한을 ${roles[role]}(으)로 변경했습니다.`);
+    } catch (e) { setMsg(friendlyError(e)); }
   }
   async function save(e) {
     e.preventDefault();
@@ -1228,10 +1370,13 @@ function Admin({ config }) {
               <div>
                 <b>{u.name}</b>
                 <small>
-                  {u.studentId || "-"} · {roles[u.role]} · {u.status}
+                  {u.studentId || "-"} · {roles[normalizeRole(u.role)] || u.role} · {u.status}
                 </small>
               </div>
               <strong>{won(u.balance)}</strong>
+              <select aria-label={`${u.name} 권한`} value={normalizeRole(u.role)} onChange={(e) => changeRole(u, e.target.value)}>
+                <option value="member">일반회원</option><option value="shop">상점</option><option value="admin2">2급 관리자</option><option value="admin1">1급 관리자</option>
+              </select>
             </div>
           ))}
         </div>
@@ -1270,7 +1415,7 @@ function AuthenticatedApp() {
         <button onClick={() => signOut(auth)}>로그아웃</button>
       </main>
     );
-  if (!config.systemOpen && profile.role !== "admin")
+  if (!config.systemOpen && !isAdmin1(profile))
     return (
       <main className="pending">
         <ShieldCheck />
@@ -1282,57 +1427,39 @@ function AuthenticatedApp() {
   let content;
   if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
   else if (page === "history.html")
-    content = <HistoryList uid={profile.id} admin={profile.role === "admin"} />;
+    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role === "member" || profile.role === "admin2"} />;
   else if (page === "settings.html")
     content = <UserSettings profile={profile} config={config} />;
-  else if (profile.role === "admin") content = <Admin config={config} />;
-  else if (profile.role === "booth")
-    content =
-      <Booth profile={profile} config={config} />;
-  else if (page === "payment.html")
+  else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
+  else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} /> : <AccessDenied />;
+  else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
+  else if (page === "payment.html" && (profile.role === "member" || profile.role === "admin2"))
     content = <Pay profile={profile} config={config} />;
-  else
-    content = (
-      <>
-        <section className="balance">
-          <span>사용 가능 포인트</span>
-          <strong>{won(profile.balance)}</strong>
-          <small>
-            {profile.name} · {profile.studentId}
-          </small>
-        </section>
-        <div className="request-grid">
-          <RequestBox
-            profile={profile}
-            type="topup"
-            enabled={config.topupEnabled}
-          />
-          <RequestBox
-            profile={profile}
-            type="refund"
-            enabled={config.refundEnabled}
-          />
-        </div>
-        <HistoryList uid={profile.id} />
-      </>
-    );
+  else content = <AccessDenied />;
   const tabs =
-    profile.role === "student"
+    profile.role === "member"
       ? [
           ["index.html", Building2, "홈"],
-          ["wallet.html", WalletCards, "내 지갑"],
           ["payment.html", QrCode, "QR 결제"],
           ["history.html", History, "내역"],
           ["settings.html", Settings, "설정"],
         ]
-      : profile.role === "booth"
+      : profile.role === "shop"
         ? [
             ["index.html", Building2, "홈"],
-            ["booth.html", QrCode, "결제 QR"],
+            ["booth.html", QrCode, "상점"],
             ["history.html", History, "거래"],
             ["settings.html", Settings, "설정"],
           ]
-        : [
+        : profile.role === "admin2"
+          ? [
+            ["index.html", Building2, "홈"],
+            ["points.html", Banknote, "포인트"],
+            ["payment.html", QrCode, "QR 결제"],
+            ["history.html", History, "거래"],
+            ["settings.html", Settings, "내 정보"],
+          ]
+          : [
             ["index.html", Building2, "홈"],
             ["admin.html", ShieldCheck, "관리"],
             ["history.html", History, "거래"],

@@ -1,2 +1,4 @@
 export function makePaymentQr({boothId,boothName,amount,memo=''}){return JSON.stringify({v:1,type:'festival-payment',boothId,boothName,amount:Number(amount),memo:String(memo).slice(0,40)})}
 export function parsePaymentQr(text){let value;try{value=JSON.parse(text)}catch{throw new Error('축제은행 결제 QR이 아닙니다.')}if(value?.v!==1||value?.type!=='festival-payment'||typeof value.boothId!=='string'||!Number.isInteger(value.amount)||value.amount<=0)throw new Error('올바르지 않은 결제 QR입니다.');return value}
+export function makeOrderQr({orderId,shopId}){return JSON.stringify({v:2,type:'festival-order',orderId:String(orderId),shopId:String(shopId)})}
+export function parseOrderQr(text){let value;try{value=JSON.parse(text)}catch{throw new Error('축제은행 주문 QR이 아닙니다.')}if(value?.v!==2||value?.type!=='festival-order'||typeof value.orderId!=='string'||!value.orderId||typeof value.shopId!=='string'||!value.shopId)throw new Error('올바르지 않은 주문 QR입니다.');return value}

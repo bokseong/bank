@@ -21,8 +21,9 @@
 - `frontend/payment.html`: QR 결제 페이지
 - `frontend/history.html`: 거래 내역 페이지
 - `frontend/settings.html`: 사용자 정보·설정 페이지
-- `frontend/booth.html`: 부스 결제 QR 페이지
-- `frontend/admin.html`: 관리자 운영 페이지
+- `frontend/booth.html`: 상점 상품·가격 등록 및 임시 주문 QR 페이지
+- `frontend/admin.html`: 1급 관리자용 계정 권한·운영 관리 페이지
+- `frontend/points.html`: 2급 관리자 이상 포인트 조절 페이지
 - `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
 - `frontend/css/`: 화면 스타일
 - `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
@@ -62,7 +63,7 @@ Remove-Item Env:\GOOGLE_APPLICATION_CREDENTIALS
 
 `users.json`은 `.gitignore`에 의해 저장소에 올라가지 않습니다. 계정 준비가 끝나면 안전하게 별도 보관하거나 삭제하세요. 최초 로그인 후 임시 비밀번호를 변경하는 운영 절차를 권장합니다.
 
-`provision` 명령은 관리자·부스 계정과 `settings/config` 기본 운영 설정을 생성합니다. 학생은 `signup.html`에서 가입 신청할 수 있으며 관리자 승인 후 이용할 수 있습니다.
+`provision` 명령은 `admin1`, `admin2`, `shop`, `member` 계정과 `settings/config` 기본 운영 설정을 생성합니다. 신규 가입자는 `member`로 신청하며 1급 관리자가 계정 권한을 변경할 수 있습니다. 상점은 상품을 등록해 5분간 한 번만 사용할 수 있는 주문 QR을 만들고, 결제 시 주문서와 잔액이 함께 검증됩니다.
 
 ## 3. 테스트 및 GitHub Pages 배포
 
