@@ -14,7 +14,7 @@
 
 ## 폴더 구조
 
-- `frontend/index.html`: 프런트엔드 진입 페이지
+- `frontend/index.html`: 로그인 후 역할별 주요 메뉴로 이동하는 홈 페이지
 - `frontend/signup.html`: 회원가입 페이지
 - `frontend/about.html`: 운영 담당자, 환전소, 이용약관 및 개인정보 수집 안내 페이지
 - `frontend/wallet.html`: 학생 지갑 페이지

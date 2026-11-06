@@ -338,6 +338,47 @@ function About() {
     </main>
   );
 }
+function HomeDashboard({ profile, config }) {
+  const destinations = [
+    {
+      href: profile.role === "admin" ? "admin.html" : profile.role === "booth" ? "booth.html" : "wallet.html",
+      icon: profile.role === "admin" ? ShieldCheck : WalletCards,
+      title: profile.role === "admin" ? "관리자 페이지" : profile.role === "booth" ? "부스 거래 관리" : "내 지갑",
+      description: profile.role === "admin" ? "계정 승인, 운영 설정과 전체 현황을 관리합니다." : profile.role === "booth" ? "결제 QR을 표시하고 부스 거래를 관리합니다." : "잔액과 충전·환불 요청을 확인합니다.",
+    },
+    {
+      href: "history.html",
+      icon: History,
+      title: "거래 페이지",
+      description: profile.role === "admin" ? "전체 충전·결제·환불 기록을 조회합니다." : "내 계정과 관련된 거래 기록을 조회합니다.",
+    },
+    {
+      href: "settings.html",
+      icon: UserRound,
+      title: "내 정보 조회",
+      description: "계정 정보와 결제 비밀번호 설정을 확인합니다.",
+    },
+  ];
+  return (
+    <>
+      <section className="home-welcome">
+        <span>FESTIVAL BANK</span>
+        <h1>{profile.name}님, 환영합니다.</h1>
+        <p>{config.announcement || "필요한 메뉴를 선택해 축제은행을 이용하세요."}</p>
+      </section>
+      <section className="home-links" aria-label="주요 메뉴">
+        {destinations.map(({ href, icon: Icon, title, description }) => (
+          <a className="home-link-card" href={`${base}${href}`} key={href}>
+            <span className="home-link-icon"><Icon /></span>
+            <strong>{title}</strong>
+            <p>{description}</p>
+            <span className="home-link-action">이동하기 →</span>
+          </a>
+        ))}
+      </section>
+    </>
+  );
+}
 function Signup() {
   const [form, setForm] = useState({
       name: "",
@@ -1239,19 +1280,17 @@ function AuthenticatedApp() {
       </main>
     );
   let content;
-  if (profile.role === "admin") content = <Admin config={config} />;
-  else if (profile.role === "booth")
-    content =
-      page === "settings.html" ? (
-        <UserSettings profile={profile} config={config} />
-      ) : (
-        <Booth profile={profile} config={config} />
-      );
-  else if (page === "payment.html")
-    content = <Pay profile={profile} config={config} />;
-  else if (page === "history.html") content = <HistoryList uid={profile.id} />;
+  if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
+  else if (page === "history.html")
+    content = <HistoryList uid={profile.id} admin={profile.role === "admin"} />;
   else if (page === "settings.html")
     content = <UserSettings profile={profile} config={config} />;
+  else if (profile.role === "admin") content = <Admin config={config} />;
+  else if (profile.role === "booth")
+    content =
+      <Booth profile={profile} config={config} />;
+  else if (page === "payment.html")
+    content = <Pay profile={profile} config={config} />;
   else
     content = (
       <>
@@ -1280,6 +1319,7 @@ function AuthenticatedApp() {
   const tabs =
     profile.role === "student"
       ? [
+          ["index.html", Building2, "홈"],
           ["wallet.html", WalletCards, "내 지갑"],
           ["payment.html", QrCode, "QR 결제"],
           ["history.html", History, "내역"],
@@ -1287,16 +1327,23 @@ function AuthenticatedApp() {
         ]
       : profile.role === "booth"
         ? [
+            ["index.html", Building2, "홈"],
             ["booth.html", QrCode, "결제 QR"],
+            ["history.html", History, "거래"],
             ["settings.html", Settings, "설정"],
           ]
-        : [];
+        : [
+            ["index.html", Building2, "홈"],
+            ["admin.html", ShieldCheck, "관리"],
+            ["history.html", History, "거래"],
+            ["settings.html", Settings, "내 정보"],
+          ];
   return (
     <div className="shell">
       <header>
         <a
           className="brand"
-          href={`${base}${profile.role === "admin" ? "admin.html" : profile.role === "booth" ? "booth.html" : "wallet.html"}`}
+          href={`${base}index.html`}
         >
           <Building2 />
           {config.festivalName}
@@ -1320,8 +1367,7 @@ function AuthenticatedApp() {
             <a
               key={file}
               className={
-                page === file ||
-                (page === "index.html" && file === "wallet.html")
+                page === file
                   ? "active"
                   : ""
               }
