@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "operationalLogs": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || (auth.token.email === 'github.jwastro09@gmail.com' && auth.token.email_verified === true))",
+        "$logId": {
+          ".write": "auth != null && auth.uid === $uid && !data.exists()",
+          ".validate": "newData.hasChildren(['event', 'at']) && newData.child('event').isString() && newData.child('event').val().length <= 40 && newData.child('at').val() === now && (!newData.hasChild('detail') || (newData.child('detail').isString() && newData.child('detail').val().length <= 160))"
+        }
+      }
+    }
+  }
+}

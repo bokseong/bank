@@ -10,7 +10,7 @@ service cloud.firestore {
     function admin1(){ return rootAdmin() || roleIs(['admin1', 'admin']); }
     function admin2(){ return admin1() || roleIs(['admin2']); }
     function shop(){ return roleIs(['shop', 'booth']); }
-    function payer(){ return roleIs(['member', 'student', 'admin2']); }
+    function payer(){ return roleIs(['member', 'student']); }
     function active(){ return signedIn() && me().data.status == 'active' && config().systemOpen == true; }
     function payTx(id){ return getAfter(/databases/$(database)/documents/transactions/$(id)); }
     function orderAfter(id){ return getAfter(/databases/$(database)/documents/orders/$(id)); }
@@ -35,9 +35,8 @@ service cloud.firestore {
     function validAdjustmentUserUpdate(uid){
       let id=request.resource.data.lastTransactionId;
       let tx=payTx(id).data;
-      return admin2() && tx.type == 'adjustment' && tx.uid == uid && tx.processedBy == request.auth.uid
-        && tx.amount is int && tx.amount != 0 && request.resource.data.balance == resource.data.balance + tx.amount
-        && request.resource.data.balance >= 0
+      return admin2() && config().topupEnabled == true && tx.type == 'adjustment' && tx.uid == uid && tx.processedBy == request.auth.uid
+        && tx.amount is int && tx.amount > 0 && tx.amount <= config().maxTopupAmount && request.resource.data.balance == resource.data.balance + tx.amount
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance','lastTransactionId','updatedAt']);
     }
     function validOrderPayment(id){
@@ -49,28 +48,104 @@ service cloud.firestore {
         && tx.type == 'payment' && tx.orderId == id && tx.payerUid == request.auth.uid
         && tx.boothUid == resource.data.shopUid && tx.amount == resource.data.amount;
     }
+    function validPaymentTxCreate(){
+      let tx=request.resource.data;
+      let order=orderAfter(tx.orderId).data;
+      let payerAfter=getAfter(userPath(tx.payerUid)).data;
+      let payerBefore=get(userPath(tx.payerUid)).data;
+      let shopAfter=getAfter(userPath(tx.boothUid)).data;
+      let shopBefore=get(userPath(tx.boothUid)).data;
+      return active() && payer() && config().paymentsEnabled == true && passwordSatisfied()
+        && tx.keys().hasOnly(['type','payerUid','boothUid','boothName','amount','memo','orderId','participantUids','createdAt'])
+        && tx.type == 'payment' && tx.payerUid == request.auth.uid && tx.boothUid == order.shopUid && tx.amount == order.amount
+        && tx.amount is int && tx.amount >= config().minPayment && tx.amount <= config().maxPayment && tx.participantUids == [tx.payerUid,tx.boothUid]
+        && order.status == 'paid' && order.payerUid == request.auth.uid && order.transactionId == request.resource.id
+        && payerAfter.balance == payerBefore.balance-tx.amount && payerAfter.lastTransactionId == request.resource.id
+        && shopAfter.balance == shopBefore.balance+tx.amount && shopAfter.lastTransactionId == request.resource.id;
+    }
+    function validAdjustmentTxCreate(){
+      let tx=request.resource.data;
+      let before=get(userPath(tx.uid)).data;
+      let after=getAfter(userPath(tx.uid)).data;
+      return admin2() && config().topupEnabled == true && tx.keys().hasOnly(['type','uid','amount','memo','participantUids','processedBy','createdAt'])
+        && tx.type == 'adjustment' && tx.uid != request.auth.uid && tx.processedBy == request.auth.uid && tx.amount is int && tx.amount > 0 && tx.amount <= config().maxTopupAmount
+        && tx.participantUids == [tx.uid] && after.balance == before.balance+tx.amount && after.lastTransactionId == request.resource.id;
+    }
+    function adminUserUpdate(uid){
+      return admin1() && uid != request.auth.uid && resource.data.studentId != 'ADMIN'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','status','updatedAt'])
+        && request.resource.data.role in ['member','shop','admin2','admin1'] && request.resource.data.status in ['active','suspended'];
+    }
+    function validRefundTxCreate(){
+      let tx=request.resource.data;
+      let refund=getAfter(/databases/$(database)/documents/refundRequests/$(tx.refundRequestId)).data;
+      let before=get(userPath(tx.uid)).data;
+      let after=getAfter(userPath(tx.uid)).data;
+      return admin1() && tx.keys().hasOnly(['type','uid','amount','memo','participantUids','processedBy','refundRequestId','createdAt'])
+        && tx.type == 'refund' && tx.processedBy == request.auth.uid && tx.uid == refund.requesterUid && tx.amount == refund.amount && tx.participantUids == [tx.uid]
+        && refund.status == 'approved' && refund.finalizedBy == request.auth.uid && refund.transactionId == request.resource.id
+        && after.balance == before.balance-tx.amount && after.lastTransactionId == request.resource.id;
+    }
+    function validRefundUserUpdate(uid){
+      let tx=payTx(request.resource.data.lastTransactionId).data;
+      return admin1() && tx.type == 'refund' && tx.uid == uid && tx.processedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance','lastTransactionId','updatedAt']);
+    }
+    function validRefundFinalUpdate(){
+      return admin1() && resource.data.status in ['pending','reviewed']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt','transactionId'])
+        && request.resource.data.status == 'approved' && request.resource.data.finalizedBy == request.auth.uid
+        && payTx(request.resource.data.transactionId).data.type == 'refund';
+    }
+    function validCancellationTxCreate(){
+      let tx=request.resource.data;
+      let cancellation=getAfter(/databases/$(database)/documents/cancellationRequests/$(tx.cancellationRequestId)).data;
+      let original=get(/databases/$(database)/documents/transactions/$(tx.originalTransactionId)).data;
+      let payerBefore=get(userPath(tx.payerUid)).data;
+      let payerAfter=getAfter(userPath(tx.payerUid)).data;
+      let shopBefore=get(userPath(tx.boothUid)).data;
+      let shopAfter=getAfter(userPath(tx.boothUid)).data;
+      return admin1() && tx.keys().hasOnly(['type','payerUid','boothUid','boothName','amount','memo','participantUids','processedBy','cancellationRequestId','originalTransactionId','createdAt'])
+        && tx.type == 'cancellation' && tx.processedBy == request.auth.uid && tx.originalTransactionId == cancellation.transactionId
+        && original.type == 'payment' && tx.payerUid == original.payerUid && tx.boothUid == original.boothUid && tx.amount == original.amount && tx.participantUids == [tx.payerUid,tx.boothUid]
+        && cancellation.status == 'approved' && cancellation.finalizedBy == request.auth.uid && cancellation.reversalTransactionId == request.resource.id
+        && payerAfter.balance == payerBefore.balance+tx.amount && payerAfter.lastTransactionId == request.resource.id
+        && shopAfter.balance == shopBefore.balance-tx.amount && shopAfter.lastTransactionId == request.resource.id;
+    }
+    function validCancellationUserUpdate(uid){
+      let tx=payTx(request.resource.data.lastTransactionId).data;
+      return admin1() && tx.type == 'cancellation' && tx.processedBy == request.auth.uid && (uid == tx.payerUid || uid == tx.boothUid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance','lastTransactionId','updatedAt']);
+    }
+    function validCancellationFinalUpdate(){
+      return admin1() && resource.data.status == 'pending' && request.resource.data.status == 'approved'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt','reversalTransactionId'])
+        && request.resource.data.finalizedBy == request.auth.uid && payTx(request.resource.data.reversalTransactionId).data.type == 'cancellation';
+    }
     match /users/{uid} {
       allow create: if (rootAdmin() && uid == request.auth.uid && request.resource.data.role == 'admin1' && request.resource.data.status == 'active' && request.resource.data.balance == 0)
-        || (signedIn() && uid == request.auth.uid && request.resource.data.role == 'member' && request.resource.data.status == 'pending' && request.resource.data.balance == 0 && request.resource.data.requirePaymentPassword == true
+        || (signedIn() && uid == request.auth.uid && request.resource.data.role == 'member' && request.resource.data.status == 'active' && request.resource.data.balance == 0 && request.resource.data.requirePaymentPassword == true
           && request.resource.data.termsAcceptedAt == request.time && request.resource.data.privacyAcceptedAt == request.time
           && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','requirePaymentPassword','termsAcceptedAt','privacyAcceptedAt','termsVersion','privacyVersion','createdAt','updatedAt']));
       allow get: if signedIn() && (uid == request.auth.uid || admin2());
       allow list: if admin2() || (active() && resource.data.role in ['shop', 'booth'] && resource.data.status == 'active');
-      allow update: if admin1() || validPaymentUserUpdate(uid) || validAdjustmentUserUpdate(uid)
-        || (signedIn() && uid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requirePaymentPassword','updatedAt']) && request.resource.data.requirePaymentPassword is bool);
-      allow delete: if admin1();
+       allow update: if (signedIn() && uid == request.auth.uid
+         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requirePaymentPassword','updatedAt']) && request.resource.data.requirePaymentPassword is bool)
+         || validPaymentUserUpdate(uid) || validAdjustmentUserUpdate(uid) || validRefundUserUpdate(uid) || validCancellationUserUpdate(uid) || adminUserUpdate(uid);
+      allow delete: if signedIn() && uid == request.auth.uid;
+    }
+    match /refundAccounts/{uid} {
+      allow create, update: if signedIn() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['bankName','accountNumber','accountHolderName','createdAt','updatedAt'])
+        && request.resource.data.bankName is string && request.resource.data.bankName.size() > 0 && request.resource.data.bankName.size() <= 30
+        && request.resource.data.accountNumber is string && request.resource.data.accountNumber.size() >= 6 && request.resource.data.accountNumber.size() <= 30
+        && request.resource.data.accountHolderName is string && request.resource.data.accountHolderName.size() > 0 && request.resource.data.accountHolderName.size() <= 20;
+      allow get: if signedIn() && (uid == request.auth.uid || admin1());
+      allow list: if admin1();
+      allow delete: if admin1() || (signedIn() && uid == request.auth.uid);
     }
     match /transactions/{id} {
-      allow create: if (admin2() && request.resource.data.type == 'adjustment' && request.resource.data.processedBy == request.auth.uid
-        && request.resource.data.amount is int && request.resource.data.amount != 0 && request.resource.data.participantUids == [request.resource.data.uid]
-        && request.resource.data.keys().hasOnly(['type','uid','amount','memo','participantUids','processedBy','createdAt']))
-        || (active() && payer() && config().paymentsEnabled == true && passwordSatisfied()
-          && request.resource.data.type == 'payment' && request.resource.data.payerUid == request.auth.uid
-          && request.resource.data.amount is int && request.resource.data.amount >= config().minPayment && request.resource.data.amount <= config().maxPayment
-          && request.resource.data.participantUids == [request.auth.uid,request.resource.data.boothUid]
-          && orderAfter(request.resource.data.orderId).data.status == 'paid' && orderAfter(request.resource.data.orderId).data.transactionId == id
-          && getAfter(userPath(request.auth.uid)).data.lastTransactionId == id && getAfter(userPath(request.resource.data.boothUid)).data.lastTransactionId == id
-          && request.resource.data.keys().hasOnly(['type','payerUid','boothUid','boothName','amount','memo','orderId','participantUids','createdAt']));
+       allow create: if validPaymentTxCreate() || validAdjustmentTxCreate() || validRefundTxCreate() || validCancellationTxCreate();
       allow read: if admin2() || (signedIn() && request.auth.uid in resource.data.participantUids);
       allow update,delete: if false;
     }
@@ -80,15 +155,58 @@ service cloud.firestore {
       allow update,delete: if shop() && shopId == request.auth.uid;
     }
     match /orders/{id} {
-      allow create: if shop() && request.resource.data.shopUid == request.auth.uid && request.resource.data.shopName is string && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.items is list && request.resource.data.status == 'pending' && request.resource.data.expiresAt > request.time && request.resource.data.expiresAt <= request.time + duration.value(6, 'm')
-        && request.resource.data.keys().hasOnly(['shopUid','shopName','items','amount','status','createdAt','expiresAt']);
       allow get: if admin1() || (shop() && resource.data.shopUid == request.auth.uid) || (active() && resource.data.status == 'pending' && resource.data.expiresAt > request.time) || (signedIn() && resource.data.payerUid == request.auth.uid);
       allow list: if admin1() || (shop() && resource.data.shopUid == request.auth.uid);
-      allow update: if validOrderPayment(id);
-      allow delete: if admin1() || (shop() && resource.data.shopUid == request.auth.uid && resource.data.status == 'pending');
+       allow create: if shop() && config().paymentsEnabled == true
+         && request.resource.data.keys().hasOnly(['shopUid','shopName','productId','productName','quantity','amount','status','createdAt','expiresAt'])
+         && request.resource.data.shopUid == request.auth.uid && request.resource.data.shopName == me().data.name
+         && request.resource.data.productId is string && request.resource.data.productName is string && request.resource.data.quantity is int && request.resource.data.quantity > 0 && request.resource.data.quantity <= 20
+         && get(/databases/$(database)/documents/shops/$(request.auth.uid)/products/$(request.resource.data.productId)).data.active == true
+         && request.resource.data.productName == get(/databases/$(database)/documents/shops/$(request.auth.uid)/products/$(request.resource.data.productId)).data.name
+         && request.resource.data.amount == get(/databases/$(database)/documents/shops/$(request.auth.uid)/products/$(request.resource.data.productId)).data.price * request.resource.data.quantity
+         && request.resource.data.amount is int && request.resource.data.amount >= config().minPayment && request.resource.data.amount <= config().maxPayment
+         && request.resource.data.status == 'pending' && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time && request.resource.data.expiresAt <= request.time + duration.value(300, 's');
+       allow update: if validOrderPayment(id);
+      allow delete: if false;
     }
-    match /requests/{id} { allow read,write: if admin1(); }
-    match /settings/{id} { allow read: if signedIn(); allow write: if admin1(); }
+    match /auditLogs/{id} { allow read: if admin1(); allow write: if false; }
+    match /refundRequests/{id} {
+      allow get: if signedIn() && (resource.data.requesterUid == request.auth.uid || admin2());
+      allow list: if admin2() || (signedIn() && resource.data.requesterUid == request.auth.uid);
+       allow create: if active() && config().refundEnabled == true && (payer() || shop())
+         && request.resource.data.keys().hasOnly(['requesterUid','requesterName','requesterRole','amount','memo','status','createdAt'])
+         && request.resource.data.requesterUid == request.auth.uid && request.resource.data.requesterName == me().data.name && request.resource.data.requesterRole in ['member','shop']
+         && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.amount <= me().data.balance
+         && request.resource.data.memo is string && request.resource.data.memo.size() <= 80 && request.resource.data.status == 'pending'
+         && exists(/databases/$(database)/documents/refundAccounts/$(request.auth.uid));
+       allow update: if admin2() && resource.data.status == 'pending'
+         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reviewedBy','reviewedAt']) && request.resource.data.status == 'reviewed' && request.resource.data.reviewedBy == request.auth.uid;
+       allow update: if admin1() && resource.data.status in ['pending','reviewed'] && request.resource.data.status == 'rejected'
+         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt']) && request.resource.data.finalizedBy == request.auth.uid
+         || validRefundFinalUpdate();
+      allow delete: if false;
+    }
+    match /cancellationRequests/{id} {
+      allow get: if signedIn() && (resource.data.shopUid == request.auth.uid || admin1());
+      allow list: if admin1() || (shop() && resource.data.shopUid == request.auth.uid);
+       allow create: if shop() && request.resource.data.keys().hasOnly(['transactionId','shopUid','shopName','payerUid','amount','memo','status','createdAt'])
+         && request.resource.data.shopUid == request.auth.uid && request.resource.data.shopName == me().data.name && request.resource.data.status == 'pending'
+         && get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.type == 'payment'
+         && get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.boothUid == request.auth.uid
+         && request.resource.data.payerUid == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.payerUid
+         && request.resource.data.amount == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.amount;
+       allow update: if admin1() && resource.data.status == 'pending' && request.resource.data.status == 'rejected'
+         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt']) && request.resource.data.finalizedBy == request.auth.uid
+         || validCancellationFinalUpdate();
+      allow delete: if false;
+    }
+    match /settings/{id} {
+      allow read: if signedIn();
+       allow create, update: if admin1() && id == 'config'
+         && request.resource.data.keys().hasOnly(['festivalName','announcement','systemOpen','paymentsEnabled','topupEnabled','refundEnabled','forcePaymentPassword','minPayment','maxPayment','maxTopupAmount','qrExpirySeconds','updatedAt','updatedBy'])
+         && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
     match /{document=**} { allow read,write: if false; }
   }
 }

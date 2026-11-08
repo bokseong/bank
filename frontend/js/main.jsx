@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   EmailAuthProvider,
   GithubAuthProvider,
   GoogleAuthProvider,
   onAuthStateChanged,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -21,13 +23,14 @@ import {
   onSnapshot,
   orderBy,
   query,
-  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
+import { push, ref, serverTimestamp as rtdbServerTimestamp } from "firebase/database";
 import { BrowserQRCodeReader } from "@zxing/browser";
 import {
   Banknote,
@@ -43,7 +46,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { auth, db } from "./firebase";
+import { auth, db, rtdb } from "./firebase";
 import { friendlyError, validAmount, won } from "./domain";
 import { makeOrderQr, parseOrderQr } from "./qr";
 import "../css/style.css";
@@ -54,7 +57,7 @@ const roles = {
     admin1: "1급 관리자",
     admin2: "2급 관리자",
   },
-  types = { payment: "결제", topup: "충전", refund: "환불", adjustment: "포인트 조절" },
+  types = { payment: "결제", topup: "충전", refund: "환불", cancellation: "결제 취소", adjustment: "포인트 조절" },
   legacyRoles = { student: "member", booth: "shop", admin: "admin1" };
 const base = import.meta.env.BASE_URL;
 const googleProvider = new GoogleAuthProvider(),
@@ -75,7 +78,14 @@ const defaultConfig = {
   forcePaymentPassword: true,
   minPayment: 1,
   maxPayment: 1000000,
+  maxTopupAmount: 50000,
+  qrExpirySeconds: 180,
 };
+async function writeOperationalLog(event, detail = "") {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  try { await push(ref(rtdb, `operationalLogs/${uid}`), { event: String(event).slice(0, 40), detail: String(detail).slice(0, 160), at: rtdbServerTimestamp() }); } catch { /* 로그 실패는 결제 흐름을 중단하지 않습니다. */ }
+}
 function useSession() {
   const [s, setS] = useState({
     loading: true,
@@ -340,7 +350,7 @@ function About() {
     <main className="about-page">
       <header className="about-header">
         <a className="brand" href={base}><Building2 />복성고 축제은행</a>
-        <a className="back-link" href={base}>로그인으로 돌아가기</a>
+        <a className="back-link" href={base}>메인 화면으로 돌아가기</a>
       </header>
       <div className="about-content">
         <section className="about-intro">
@@ -364,12 +374,12 @@ function About() {
 }
 function HomeDashboard({ profile, config }) {
   const destinations = isAdmin1(profile)
-    ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "전체 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+    ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "전체 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
     : profile.role === "admin2"
-      ? [{ href: "points.html", icon: Banknote, title: "포인트 조절", description: "지급·차감 내역을 기록합니다." }, { href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "포인트 조절과 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+      ? [{ href: "points.html", icon: Banknote, title: "포인트 조절", description: "현금 수납 확인 후 포인트를 충전하고 환불을 검토합니다." }, { href: "history.html", icon: History, title: "거래 내역", description: "포인트 조절과 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
       : profile.role === "shop"
-        ? [{ href: "booth.html", icon: QrCode, title: "상점 관리", description: "상품·가격을 등록하고 주문 QR을 만듭니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "상점 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
-        : [{ href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 임시 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "거래 페이지", description: "내 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }];
+        ? [{ href: "booth.html", icon: QrCode, title: "상점 관리", description: "상품·가격을 등록하고 주문 QR을 만듭니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "상점 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+        : [{ href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 임시 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "내 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }];
   return (
     <>
       <section className="home-welcome">
@@ -394,6 +404,9 @@ function Signup() {
   const [form, setForm] = useState({
       name: "",
       studentId: "",
+      bankName: "",
+      accountNumber: "",
+      accountHolderName: "",
       email: "",
       password: "",
       confirm: "",
@@ -407,19 +420,32 @@ function Signup() {
     name: form.name.trim(),
     studentId: form.studentId.trim(),
     role: "member",
-    status: "pending",
+    status: "active",
     balance: 0,
     requirePaymentPassword: true,
     termsAcceptedAt: serverTimestamp(),
     privacyAcceptedAt: serverTimestamp(),
-    termsVersion: "2026-11-06",
-    privacyVersion: "2026-11-06",
+    termsVersion: "2026-11-08",
+    privacyVersion: "2026-11-08",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  const refundAccountData = () => ({
+    bankName: form.bankName.trim(),
+    accountNumber: form.accountNumber.replace(/\D/g, ""),
+    accountHolderName: form.accountHolderName.trim(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  async function createProfile(user) {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "users", user.uid), profileData());
+    batch.set(doc(db, "refundAccounts", user.uid), refundAccountData());
+    await batch.commit();
+  }
   function validIdentity() {
-    if (!form.name.trim() || !form.studentId.trim()) {
-      setError("이름과 학번을 입력해 주세요.");
+    if (!form.name.trim() || !form.studentId.trim() || !form.bankName.trim() || !form.accountHolderName.trim() || form.accountNumber.replace(/\D/g, "").length < 6) {
+      setError("이름, 학번, 은행명, 예금주, 올바른 계좌번호를 입력해 주세요.");
       return false;
     }
     if (!form.termsAccepted || !form.privacyAccepted) {
@@ -441,7 +467,12 @@ function Signup() {
         form.email,
         form.password,
       );
-      await setDoc(doc(db, "users", c.user.uid), profileData());
+      try {
+        await createProfile(c.user);
+      } catch (e) {
+        await deleteUser(c.user);
+        throw e;
+      }
     } catch (e) {
       setError(friendlyError(e));
     } finally {
@@ -459,7 +490,12 @@ function Signup() {
         throw new Error(
           "이미 가입된 계정입니다. 로그인 페이지를 이용해 주세요.",
         );
-      await setDoc(doc(db, "users", result.user.uid), profileData());
+      try {
+        await createProfile(result.user);
+      } catch (e) {
+        await deleteUser(result.user);
+        throw e;
+      }
     } catch (e) {
       setError(friendlyError(e));
     } finally {
@@ -479,7 +515,7 @@ function Signup() {
           회원가입
         </h1>
         <p>
-          가입 신청 후 관리자의 승인을 받아야 충전과 결제를 이용할 수 있습니다.
+          가입을 완료하면 바로 축제은행 기능을 이용할 수 있습니다.
         </p>
       </section>
       <section className="auth-card signup-card">
@@ -505,6 +541,18 @@ function Signup() {
               setForm({ ...form, studentId: e.target.value.replace(/\D/g, "") })
             }
           />
+        </label>
+        <label>
+          환급 은행명
+          <input required maxLength="30" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} placeholder="예: 국민은행" />
+        </label>
+        <label>
+          환급 계좌번호
+          <input required inputMode="numeric" maxLength="30" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value.replace(/[^\d-]/g, "") })} placeholder="숫자와 하이픈만 입력" />
+        </label>
+        <label>
+          예금주명
+          <input required maxLength="20" value={form.accountHolderName} onChange={(e) => setForm({ ...form, accountHolderName: e.target.value })} placeholder="계좌 예금주 이름" />
         </label>
         <div className="legal-consent">
           <label className="consent-row">
@@ -573,7 +621,7 @@ function Signup() {
           </label>
           {error && <div className="error">{error}</div>}
           <button disabled={busy}>
-            {busy ? "가입 처리 중…" : "이메일로 가입 신청"}
+            {busy ? "가입 처리 중…" : "이메일로 가입"}
           </button>
         </form>
         <ProviderButtons busy={busy} onProvider={oauth} mode="회원가입" />
@@ -585,7 +633,7 @@ function Signup() {
     </main>
   );
 }
-function HistoryList({ uid, admin = false, canPay = false }) {
+function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) {
   const [items, setItems] = useState([]);
   useEffect(() => {
     const q = admin
@@ -606,13 +654,23 @@ function HistoryList({ uid, admin = false, canPay = false }) {
       () => {},
     );
   }, [uid, admin]);
+  async function requestCancellation(transactionId) {
+    if (!window.confirm("이 결제를 취소 신청합니까? 1급 관리자의 승인 후 포인트가 되돌아갑니다.")) return;
+    try {
+      const payment = await getDoc(doc(db, "transactions", transactionId));
+      if (!payment.exists() || payment.data().type !== "payment" || payment.data().boothUid !== uid) throw new Error("이 상점의 결제 기록만 취소 신청할 수 있습니다.");
+      const data = payment.data();
+      await addDoc(collection(db, "cancellationRequests"), { transactionId, shopUid: uid, shopName: data.boothName, payerUid: data.payerUid, amount: data.amount, memo: data.memo || "", status: "pending", createdAt: serverTimestamp() });
+      window.alert("결제 취소 신청이 접수되었습니다.");
+    } catch (e) { window.alert(friendlyError(e)); }
+  }
   return (
     <section className="panel">
-      <h2>거래 내역</h2>
+      <h2>결제 내역</h2>
       {canPay && <a className="pay-now" href={`${base}payment.html`}><QrCode /> 결제하기</a>}
       <div className="list">
         {!items.length && (
-          <div className="empty">아직 거래 내역이 없습니다.</div>
+          <div className="empty">아직 결제 내역이 없습니다.</div>
         )}
         {items.map((x) => (
           <div className="row" key={x.id}>
@@ -630,6 +688,7 @@ function HistoryList({ uid, admin = false, canPay = false }) {
               {x.payerUid === uid ? "-" : "+"}
               {won(x.amount)}
             </strong>
+            {canCancel && x.type === "payment" && x.boothUid === uid && <button className="secondary" onClick={() => requestCancellation(x.id)}>결제 취소 신청</button>}
           </div>
         ))}
       </div>
@@ -638,50 +697,6 @@ function HistoryList({ uid, admin = false, canPay = false }) {
 }
 function AccessDenied() {
   return <main className="pending"><ShieldCheck /><h1>접근 권한이 없습니다</h1><p>이 페이지는 현재 계정의 권한으로 이용할 수 없습니다.</p><a className="about-button" href={`${base}index.html`}>홈으로 돌아가기</a></main>;
-}
-function RequestBox({ profile, type, enabled }) {
-  const [amount, setAmount] = useState(""),
-    [msg, setMsg] = useState("");
-  async function send(e) {
-    e.preventDefault();
-    const n = validAmount(amount);
-    if (!enabled) return setMsg("현재 관리자가 이 신청을 중지했습니다.");
-    if (!n) return setMsg("올바른 금액을 입력하세요.");
-    if (type === "refund" && n > profile.balance)
-      return setMsg("잔액보다 많이 환불할 수 없습니다.");
-    try {
-      await addDoc(collection(db, "requests"), {
-        uid: profile.id,
-        type,
-        amount: n,
-        status: "pending",
-        createdAt: serverTimestamp(),
-      });
-      setAmount("");
-      setMsg("신청이 접수되었습니다.");
-    } catch (e) {
-      setMsg(friendlyError(e));
-    }
-  }
-  return (
-    <form className="request" onSubmit={send}>
-      <h3>{type === "topup" ? "포인트 충전 신청" : "잔액 환불 신청"}</h3>
-      <div className="amount">
-        <input
-          inputMode="numeric"
-          disabled={!enabled}
-          placeholder="금액"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))}
-        />
-        <span>원</span>
-      </div>
-      <button disabled={!enabled}>
-        {enabled ? "신청하기" : "현재 중지됨"}
-      </button>
-      {msg && <small>{msg}</small>}
-    </form>
-  );
 }
 function Scanner({ onRead, onClose }) {
   const video = useRef(null),
@@ -776,57 +791,19 @@ function Pay({ profile, config }) {
           auth.currentUser,
           EmailAuthProvider.credential(auth.currentUser.email, password),
         );
+        await auth.currentUser.getIdToken(true);
       }
-      const txRef = doc(collection(db, "transactions"));
-      await runTransaction(db, async (tx) => {
-        const pr = doc(db, "users", profile.id),
-          br = doc(db, "users", invoice.shopUid),
-          or = doc(db, "orders", invoice.id);
-        const [p, b, o] = await Promise.all([tx.get(pr), tx.get(br), tx.get(or)]);
-        if (!p.exists() || p.data().balance < invoice.amount)
-          throw new Error("잔액이 부족합니다.");
-        if (
-          !b.exists() ||
-          !["shop", "booth"].includes(b.data().role) ||
-          b.data().status !== "active"
-        )
-          throw new Error("사용할 수 없는 상점입니다.");
-        if (
-          !o.exists() ||
-          o.data().status !== "pending" ||
-          o.data().shopUid !== invoice.shopUid ||
-          o.data().amount !== invoice.amount ||
-          o.data().expiresAt?.toMillis?.() <= Date.now()
-        )
-          throw new Error("이미 사용되었거나 만료된 주문입니다.");
-        tx.update(pr, {
-          balance: p.data().balance - invoice.amount,
-          lastTransactionId: txRef.id,
-          updatedAt: serverTimestamp(),
-        });
-        tx.update(br, {
-          balance: b.data().balance + invoice.amount,
-          lastTransactionId: txRef.id,
-          updatedAt: serverTimestamp(),
-        });
-        tx.update(or, {
-          status: "paid",
-          payerUid: profile.id,
-          transactionId: txRef.id,
-          paidAt: serverTimestamp(),
-        });
-        tx.set(txRef, {
-          type: "payment",
-          payerUid: profile.id,
-          boothUid: invoice.shopUid,
-          boothName: b.data().name,
-          amount: invoice.amount,
-          memo: invoice.items.map((item) => item.name).join(", ").slice(0, 120),
-          orderId: invoice.id,
-          participantUids: [profile.id, invoice.shopUid],
-          createdAt: serverTimestamp(),
-        });
-      });
+      const payerRef = doc(db, "users", profile.id), shopRef = doc(db, "users", invoice.shopUid), orderRef = doc(db, "orders", invoice.id);
+      const [payer, shop, order] = await Promise.all([getDoc(payerRef), getDoc(shopRef), getDoc(orderRef)]);
+      if (!payer.exists() || !shop.exists() || !order.exists() || order.data().status !== "pending") throw new Error("이미 처리되었거나 사용할 수 없는 주문입니다.");
+      if (payer.data().balance < invoice.amount) throw new Error("잔액이 부족합니다.");
+      const transactionRef = doc(collection(db, "transactions")), batch = writeBatch(db);
+      batch.update(payerRef, { balance: payer.data().balance - invoice.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() });
+      batch.update(shopRef, { balance: shop.data().balance + invoice.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() });
+      batch.update(orderRef, { status: "paid", payerUid: profile.id, transactionId: transactionRef.id, paidAt: serverTimestamp() });
+      batch.set(transactionRef, { type: "payment", payerUid: profile.id, boothUid: invoice.shopUid, boothName: invoice.shopName, amount: invoice.amount, memo: `${invoice.productName} ${invoice.quantity}개`.slice(0, 120), orderId: invoice.id, participantUids: [profile.id, invoice.shopUid], createdAt: serverTimestamp() });
+      await batch.commit();
+      void writeOperationalLog("payment_completed", `${invoice.id}:${invoice.amount}`);
       setInvoice(null);
       setPassword("");
       setMsg("결제가 완료되었습니다.");
@@ -864,7 +841,7 @@ function Pay({ profile, config }) {
                 <span>결제 금액</span>
                 <strong>{won(invoice.amount)}</strong>
               </div>
-              <p>상품: {invoice.items.map((item) => `${item.name} ${item.quantity}개`).join(", ")}</p>
+              <p>상품: {invoice.productName} {invoice.quantity}개</p>
               {needPassword && (
                 <label>
                   결제 비밀번호
@@ -898,7 +875,8 @@ function Pay({ profile, config }) {
 }
 function Shop({ profile, config }) {
   const [products, setProducts] = useState([]),
-    [cart, setCart] = useState([]),
+    [selected, setSelected] = useState(null),
+    [quantity, setQuantity] = useState(1),
     [form, setForm] = useState({ name: "", price: "" }),
     [order, setOrder] = useState(null),
     [msg, setMsg] = useState("");
@@ -911,7 +889,7 @@ function Shop({ profile, config }) {
       ),
     [profile.id],
   );
-  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const total = selected ? selected.price * quantity : 0;
   async function addProduct(e) {
     e.preventDefault();
     const price = validAmount(form.price, config.maxPayment);
@@ -930,38 +908,21 @@ function Shop({ profile, config }) {
       setMsg(friendlyError(e));
     }
   }
-  function addToCart(product) {
+  function selectProduct(product) {
     if (!product.active) return;
     setOrder(null);
-    setCart((items) => {
-      const found = items.find((item) => item.id === product.id);
-      return found
-        ? items.map((item) => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item)
-        : [...items, { id: product.id, name: product.name, price: product.price, quantity: 1 }];
-    });
-  }
-  function changeQuantity(id, delta) {
-    setOrder(null);
-    setCart((items) => items
-      .map((item) => item.id === id ? { ...item, quantity: item.quantity + delta } : item)
-      .filter((item) => item.quantity > 0));
+    setSelected(product);
+    setQuantity(1);
   }
   async function createOrder() {
-    if (!cart.length || !config.paymentsEnabled) return;
-    if (total < config.minPayment || total > config.maxPayment)
-      return setMsg(`주문 금액은 ${won(config.minPayment)}~${won(config.maxPayment)}여야 합니다.`);
+    if (!selected || !config.paymentsEnabled) return;
     try {
-      const ref = await addDoc(collection(db, "orders"), {
-        shopUid: profile.id,
-        shopName: profile.name,
-        items: cart.map(({ id, name, price, quantity }) => ({ id, name, price, quantity })),
-        amount: total,
-        status: "pending",
-        createdAt: serverTimestamp(),
-        expiresAt: Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
-      });
-      setOrder({ id: ref.id, amount: total });
-      setMsg("5분 동안 사용할 수 있는 주문 QR을 만들었습니다.");
+      const orderRef = doc(collection(db, "orders"));
+      const seconds = Math.min(Math.max(Number(config.qrExpirySeconds || 180), 60), 300);
+      await setDoc(orderRef, { shopUid: profile.id, shopName: profile.name, productId: selected.id, productName: selected.name, quantity, amount: total, status: "pending", createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + seconds * 1000) });
+      void writeOperationalLog("order_qr_created", `${orderRef.id}:${total}`);
+      setOrder({ id: orderRef.id, amount: total });
+      setMsg(`주문 QR을 만들었습니다. ${seconds}초 동안 한 번만 결제할 수 있습니다.`);
     } catch (e) {
       setMsg(friendlyError(e));
     }
@@ -985,7 +946,7 @@ function Shop({ profile, config }) {
           {products.map((product) => (
             <div className="row" key={product.id}>
               <div><b>{product.name}</b><small>{won(product.price)} · {product.active === false ? "판매 중지" : "판매 중"}</small></div>
-              <button className="secondary" onClick={() => addToCart(product)} disabled={product.active === false}>주문 추가</button>
+              <button className="secondary" onClick={() => selectProduct(product)} disabled={product.active === false}>QR 상품 선택</button>
               <button className="danger" onClick={() => deleteDoc(doc(db, "shops", profile.id, "products", product.id))}>삭제</button>
             </div>
           ))}
@@ -995,12 +956,12 @@ function Shop({ profile, config }) {
         <h2>주문 QR 생성</h2>
         <div className="booth-grid">
           <div>
-            <h3>현재 주문</h3>
-            {!cart.length && <p className="empty">위 상품에서 주문할 항목을 추가하세요.</p>}
-            {cart.map((item) => <div className="cart-row" key={item.id}><span>{item.name}</span><span>{won(item.price)}</span><button className="secondary" onClick={() => changeQuantity(item.id, -1)}>-</button><b>{item.quantity}</b><button className="secondary" onClick={() => changeQuantity(item.id, 1)}>+</button></div>)}
+            <h3>QR 상품 선택</h3>
+            {!selected && <p className="empty">위에서 QR로 만들 상품 하나를 선택하세요.</p>}
+            {selected && <div className="cart-row"><span>{selected.name}</span><span>{won(selected.price)}</span><button className="secondary" onClick={() => setQuantity((n) => Math.max(1, n - 1))}>-</button><b>{quantity}</b><button className="secondary" onClick={() => setQuantity((n) => Math.min(20, n + 1))}>+</button></div>}
             <div className="cart-total"><span>결제 금액</span><strong>{won(total)}</strong></div>
-            <button disabled={!cart.length || !config.paymentsEnabled} onClick={createOrder}>임시 주문 QR 만들기</button>
-            <small>QR은 생성 시점부터 5분 동안 한 번만 결제할 수 있습니다.</small>
+            <button disabled={!selected || !config.paymentsEnabled} onClick={createOrder}>결제 QR 만들기</button>
+            <small>QR 1개에는 선택한 상품 하나만 담기며, 가격은 등록 상품 문서에서 검증됩니다.</small>
           </div>
           <div className="qr-box">
             {order && config.paymentsEnabled ? (
@@ -1023,13 +984,15 @@ function Shop({ profile, config }) {
         </div>
       </section>
       {msg && <p className="notice">{msg}</p>}
-      <HistoryList uid={profile.id} />
+      <HistoryList uid={profile.id} canCancel />
+      <RefundRequestForm profile={profile} config={config} />
     </>
   );
 }
-function PointControl({ profile }) {
+function PointControl({ profile, config }) {
   const [users, setUsers] = useState([]),
     [form, setForm] = useState({ uid: "", amount: "", memo: "" }),
+    [search, setSearch] = useState(""),
     [msg, setMsg] = useState("");
   useEffect(
     () => onSnapshot(query(collection(db, "users"), orderBy("name")), (s) => setUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => setMsg("계정 목록을 불러올 수 없습니다.")),
@@ -1037,34 +1000,84 @@ function PointControl({ profile }) {
   );
   async function adjust(e) {
     e.preventDefault();
-    const amount = Number(form.amount);
-    if (!form.uid || !Number.isInteger(amount) || amount === 0)
-      return setMsg("대상과 0이 아닌 정수 조절 금액을 입력하세요.");
+    const amount = validAmount(form.amount);
+    if (!form.uid || !amount) return setMsg("대상과 올바른 충전 금액을 입력하세요.");
+    if (form.uid === profile.id) return setMsg("본인 계정에는 충전할 수 없습니다.");
     try {
-      await runTransaction(db, async (tx) => {
-        const userRef = doc(db, "users", form.uid), txRef = doc(collection(db, "transactions"));
-        const user = await tx.get(userRef);
-        if (!user.exists()) throw new Error("대상 계정을 찾을 수 없습니다.");
-        if (user.data().balance + amount < 0) throw new Error("잔액보다 많이 차감할 수 없습니다.");
-        tx.update(userRef, { balance: user.data().balance + amount, lastTransactionId: txRef.id, updatedAt: serverTimestamp() });
-        tx.set(txRef, {
-          type: "adjustment", uid: form.uid, amount, memo: form.memo.trim().slice(0, 80),
-          participantUids: [form.uid], processedBy: profile.id, createdAt: serverTimestamp(),
-        });
-      });
+      if (!window.confirm(`${users.find((u) => u.id === form.uid)?.name || "선택한 사용자"}에게 ${won(amount)}을 충전합니까?`)) return;
+      if (!profile || !config?.topupEnabled) throw new Error("현재 포인트 충전이 중지되어 있습니다.");
+      const targetRef = doc(db, "users", form.uid), target = await getDoc(targetRef);
+      if (!target.exists() || target.data().status !== "active") throw new Error("충전할 수 없는 계정입니다.");
+      const transactionRef = doc(collection(db, "transactions")), batch = writeBatch(db);
+      batch.update(targetRef, { balance: target.data().balance + amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() });
+      batch.set(transactionRef, { type: "adjustment", uid: form.uid, amount, memo: form.memo.trim().slice(0, 80), participantUids: [form.uid], processedBy: profile.id, createdAt: serverTimestamp() });
+      await batch.commit();
+      void writeOperationalLog("points_adjusted", `${form.uid}:${amount}`);
       setForm({ uid: "", amount: "", memo: "" });
       setMsg("포인트 조절을 기록했습니다.");
     } catch (e) { setMsg(friendlyError(e)); }
   }
-  return <section className="panel point-control"><h2>포인트 조절</h2><p>양수는 지급, 음수는 차감입니다. 모든 조절은 거래 내역에 남습니다.</p><form onSubmit={adjust}>
-    <label>대상 계정<select required value={form.uid} onChange={(e) => setForm({ ...form, uid: e.target.value })}><option value="">선택하세요</option>{users.filter((u) => u.status === "active").map((u) => <option key={u.id} value={u.id}>{u.name} · {roles[normalizeRole(u.role)] || u.role} · {won(u.balance)}</option>)}</select></label>
-    <label>조절 금액<input required inputMode="numeric" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/[^\d-]/g, "") })} placeholder="예: 1000 또는 -1000" /></label>
+  const visibleUsers = users.filter((u) => u.status === "active" && `${u.name || ""} ${u.studentId || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  return <><section className="panel point-control"><h2>포인트 충전</h2><p>현금 수납을 확인한 뒤 충전하세요. 본인 계정 충전은 허용되지 않으며, 모든 처리는 감사 로그에 남습니다.</p><form onSubmit={adjust}>
+    <label>이름·학번 검색<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="예: 홍길동 또는 10101" /></label>
+    <label>대상 계정<select required value={form.uid} onChange={(e) => setForm({ ...form, uid: e.target.value })}><option value="">선택하세요</option>{visibleUsers.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.studentId || "학번 없음"} · {roles[normalizeRole(u.role)] || u.role} · {won(u.balance)}</option>)}</select></label>
+    <label>충전 금액<input required inputMode="numeric" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/\D/g, "") })} placeholder="예: 1000" /></label>
     <label>사유<input maxLength="80" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="예: 환전소 수기 정산" /></label>
-    <button>포인트 조절 저장</button>
-  </form>{msg && <p className="notice">{msg}</p>}</section>;
+    <button>충전 확인 및 저장</button>
+  </form>{msg && <p className="notice">{msg}</p>}</section><RefundReviewList final={false} /></>;
+}
+function RefundRequestForm({ profile, config }) {
+  const [amount, setAmount] = useState(""), [memo, setMemo] = useState(""), [msg, setMsg] = useState("");
+  async function submit(e) {
+    e.preventDefault(); const value = validAmount(amount);
+    if (!value) return setMsg("올바른 환불 금액을 입력하세요.");
+    try { if (!config.refundEnabled) throw new Error("현재 환불 신청이 중지되어 있습니다."); await addDoc(collection(db, "refundRequests"), { requesterUid: profile.id, requesterName: profile.name, requesterRole: profile.role, amount: value, memo: memo.slice(0, 80), status: "pending", createdAt: serverTimestamp() }); void writeOperationalLog("refund_requested", String(value)); setAmount(""); setMemo(""); setMsg("환불 신청이 접수되었습니다. 관리자의 최종 승인을 기다려 주세요."); }
+    catch (e) { setMsg(friendlyError(e)); }
+  }
+  return <form className="refund-request" onSubmit={submit}><h3>포인트 환불 신청</h3><p>등록한 환급 계좌로 이체하기 전 1급 관리자의 최종 승인이 필요합니다.</p><label>환불 금액<input required inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder={`잔액 ${won(profile.balance)} 이하`} /></label><label>사유(선택)<input maxLength="80" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="예: 축제 종료 잔액 환급" /></label><button>환불 신청</button>{msg && <p className="notice">{msg}</p>}</form>;
+}
+function RefundReviewList({ final }) {
+  const [items, setItems] = useState([]), [accounts, setAccounts] = useState({}), [msg, setMsg] = useState("");
+  useEffect(() => onSnapshot(query(collection(db, "refundRequests"), orderBy("createdAt", "desc"), limit(100)), (s) => setItems(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => setMsg("환불 신청 목록을 불러올 수 없습니다.")), []);
+  useEffect(() => {
+    if (!final) return undefined;
+    return onSnapshot(collection(db, "refundAccounts"), (s) => setAccounts(Object.fromEntries(s.docs.map((d) => [d.id, d.data()]))), () => setMsg("환급 계좌 정보를 불러올 수 없습니다."));
+  }, [final]);
+  const visible = final ? items.filter((x) => ["pending", "reviewed"].includes(x.status)) : items.filter((x) => x.status === "pending");
+  async function review(id) { try { await updateDoc(doc(db, "refundRequests", id), { status: "reviewed", reviewedBy: auth.currentUser.uid, reviewedAt: serverTimestamp() }); void writeOperationalLog("refund_reviewed", id); setMsg("1급 관리자의 최종 승인을 위해 검토 완료로 표시했습니다."); } catch (e) { setMsg(friendlyError(e)); } }
+  async function finish(id, approved) { try { if (!window.confirm(approved ? "계좌이체를 진행할 환불을 최종 승인합니까?" : "환불 신청을 반려합니까?")) return; const requestRef = doc(db, "refundRequests", id), request = await getDoc(requestRef); if (!request.exists()) throw new Error("환불 신청을 찾을 수 없습니다."); if (!approved) { await updateDoc(requestRef, { status: "rejected", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp() }); } else { const data = request.data(), targetRef = doc(db, "users", data.requesterUid), target = await getDoc(targetRef); if (!target.exists() || target.data().balance < data.amount) throw new Error("대상 잔액이 부족합니다."); const transactionRef = doc(collection(db, "transactions")), batch = writeBatch(db); batch.update(targetRef, { balance: target.data().balance - data.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() }); batch.update(requestRef, { status: "approved", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp(), transactionId: transactionRef.id }); batch.set(transactionRef, { type: "refund", uid: data.requesterUid, amount: data.amount, memo: data.memo || "", participantUids: [data.requesterUid], processedBy: auth.currentUser.uid, refundRequestId: id, createdAt: serverTimestamp() }); await batch.commit(); } setMsg(approved ? "환불이 승인되었습니다. 실제 계좌이체 후 처리 상태를 확인하세요." : "환불 신청을 반려했습니다."); } catch (e) { setMsg(friendlyError(e)); } }
+  return <section className="panel refund-review"><h2>{final ? "환불 최종 승인" : "환불 검토 대기"}</h2><div className="list">{!visible.length && <div className="empty">처리할 환불 신청이 없습니다.</div>}{visible.map((x) => { const account = accounts[x.requesterUid]; return <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.requesterName} · {won(x.amount)}</b><small>{x.requesterRole === "shop" ? "상점" : "사용자"} · {x.memo || "사유 없음"} · {x.status}</small>{final && <small>환급 계좌: {account ? `${account.bankName} ${account.accountNumber} (${account.accountHolderName})` : "등록 정보 없음"}</small>}</div>{final ? <><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></> : <button onClick={() => review(x.id)}>검토 완료</button>}</div>; })}</div>{msg && <p className="notice">{msg}</p>}</section>;
+}
+function CancellationReviewList() {
+  const [items, setItems] = useState([]), [msg, setMsg] = useState("");
+  useEffect(() => onSnapshot(query(collection(db, "cancellationRequests"), orderBy("createdAt", "desc"), limit(100)), (s) => setItems(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => setMsg("결제 취소 신청 목록을 불러올 수 없습니다.")), []);
+  async function finish(id, approved) {
+    try {
+      if (!window.confirm(approved ? "결제 취소를 승인하고 포인트를 되돌립니까?" : "결제 취소 신청을 반려합니까?")) return;
+      const requestRef = doc(db, "cancellationRequests", id), request = await getDoc(requestRef);
+      if (!request.exists()) throw new Error("결제 취소 신청을 찾을 수 없습니다.");
+      if (!approved) await updateDoc(requestRef, { status: "rejected", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp() });
+      else { const data = request.data(), payerRef = doc(db, "users", data.payerUid), shopRef = doc(db, "users", data.shopUid); const [payer, shop] = await Promise.all([getDoc(payerRef), getDoc(shopRef)]); if (!payer.exists() || !shop.exists() || shop.data().balance < data.amount) throw new Error("취소에 필요한 상점 잔액이 부족합니다."); const transactionRef = doc(collection(db, "transactions")), batch = writeBatch(db); batch.update(payerRef, { balance: payer.data().balance + data.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() }); batch.update(shopRef, { balance: shop.data().balance - data.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() }); batch.update(requestRef, { status: "approved", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp(), reversalTransactionId: transactionRef.id }); batch.set(transactionRef, { type: "cancellation", payerUid: data.payerUid, boothUid: data.shopUid, boothName: data.shopName, amount: data.amount, memo: `결제 취소: ${data.memo || ""}`.slice(0, 120), participantUids: [data.payerUid, data.shopUid], processedBy: auth.currentUser.uid, cancellationRequestId: id, originalTransactionId: data.transactionId, createdAt: serverTimestamp() }); await batch.commit(); }
+      setMsg(approved ? "결제 취소를 승인했습니다." : "결제 취소 신청을 반려했습니다.");
+    } catch (e) { setMsg(friendlyError(e)); }
+  }
+  const pending = items.filter((x) => x.status === "pending");
+  return <section className="panel refund-review"><h2>결제 취소 최종 승인</h2><div className="list">{!pending.length && <div className="empty">처리할 결제 취소 신청이 없습니다.</div>}{pending.map((x) => <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.shopName} · {won(x.amount)}</b><small>결제 취소 신청 · {x.memo || "상품 정보 없음"}</small></div><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></div>)}</div>{msg && <p className="notice">{msg}</p>}</section>;
 }
 function UserSettings({ profile, config }) {
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg] = useState(""),
+    [withdrawOpen, setWithdrawOpen] = useState(false),
+    [password, setPassword] = useState(""),
+    [busy, setBusy] = useState(false),
+    [refund, setRefund] = useState({ bankName: "", accountNumber: "", accountHolderName: "" });
+  useEffect(() => {
+    getDoc(doc(db, "refundAccounts", profile.id)).then((snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        setRefund({ bankName: data.bankName || "", accountNumber: data.accountNumber || "", accountHolderName: data.accountHolderName || "" });
+      }
+    }).catch(() => setMsg("환급 계좌 정보를 불러올 수 없습니다."));
+  }, [profile.id]);
   async function toggle(e) {
     try {
       await updateDoc(doc(db, "users", profile.id), {
@@ -1074,6 +1087,59 @@ function UserSettings({ profile, config }) {
       setMsg("설정이 저장되었습니다.");
     } catch (e) {
       setMsg(friendlyError(e));
+    }
+  }
+  async function saveRefundAccount(e) {
+    e.preventDefault();
+    const accountNumber = refund.accountNumber.replace(/\D/g, "");
+    if (!refund.bankName.trim() || !refund.accountHolderName.trim() || accountNumber.length < 6)
+      return setMsg("은행명, 예금주, 올바른 계좌번호를 입력해 주세요.");
+    try {
+      await setDoc(doc(db, "refundAccounts", profile.id), {
+        bankName: refund.bankName.trim(),
+        accountNumber,
+        accountHolderName: refund.accountHolderName.trim(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setRefund({ ...refund, accountNumber });
+      setMsg("환급 계좌 정보가 저장되었습니다.");
+    } catch (e) { setMsg(friendlyError(e)); }
+  }
+  async function withdraw(e) {
+    e.preventDefault();
+    const user = auth.currentUser;
+    if (!user) return;
+    if (isRootAdmin(user)) {
+      setMsg("절대 관리자 계정은 이 화면에서 탈퇴할 수 없습니다.");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      const providerId = user.providerData[0]?.providerId;
+      if (providerId === "password") {
+        if (!password) throw new Error("탈퇴하려면 비밀번호를 입력해 주세요.");
+        await reauthenticateWithCredential(
+          user,
+          EmailAuthProvider.credential(user.email, password),
+        );
+      } else if (providerId === "google.com") {
+        await reauthenticateWithPopup(user, googleProvider);
+      } else if (providerId === "github.com") {
+        await reauthenticateWithPopup(user, githubProvider);
+      } else {
+        throw new Error("이 로그인 방식은 재인증을 지원하지 않습니다.");
+      }
+      await deleteDoc(doc(db, "refundAccounts", profile.id));
+      await deleteDoc(doc(db, "users", profile.id));
+      await deleteUser(user);
+      setWithdrawOpen(false);
+      setPassword("");
+      setMsg("회원 탈퇴가 완료되었습니다.");
+    } catch (e) {
+      setMsg(friendlyError(e));
+    } finally {
+      setBusy(false);
     }
   }
   return (
@@ -1120,13 +1186,41 @@ function UserSettings({ profile, config }) {
           onChange={toggle}
         />
       </label>
+      <form className="refund-account" onSubmit={saveRefundAccount}>
+        <h3>환급 계좌 정보</h3>
+        <p>축제 종료 후 잔여 포인트를 계좌이체로 환급할 때 사용합니다. 은행명, 계좌번호와 예금주를 정확히 입력하세요.</p>
+        <label>은행명<input required maxLength="30" value={refund.bankName} onChange={(e) => setRefund({ ...refund, bankName: e.target.value })} placeholder="예: 국민은행" /></label>
+        <label>계좌번호<input required inputMode="numeric" maxLength="30" value={refund.accountNumber} onChange={(e) => setRefund({ ...refund, accountNumber: e.target.value.replace(/[^\d-]/g, "") })} placeholder="숫자와 하이픈만 입력" /></label>
+        <label>예금주명<input required maxLength="20" value={refund.accountHolderName} onChange={(e) => setRefund({ ...refund, accountHolderName: e.target.value })} /></label>
+        <button>환급 계좌 저장</button>
+      </form>
+      {(profile.role === "member" || profile.role === "shop") && <RefundRequestForm profile={profile} config={config} />}
       {msg && <p className="notice">{msg}</p>}
+      {!isRootAdmin(auth.currentUser) && (
+        <section className="withdraw-section">
+          <h3>회원 탈퇴</h3>
+          <p>계정과 내 프로필이 삭제됩니다. 이미 처리된 거래 기록은 정산·감사 목적으로 보존됩니다.</p>
+          <button className="danger" type="button" onClick={() => setWithdrawOpen(true)}>회원 탈퇴</button>
+        </section>
+      )}
+      {withdrawOpen && (
+        <div className="legal-backdrop" role="presentation" onClick={() => !busy && setWithdrawOpen(false)}>
+          <form className="legal-modal withdraw-modal" onSubmit={withdraw} onClick={(e) => e.stopPropagation()}>
+            <h2>회원 탈퇴</h2>
+            <p>삭제 후에는 같은 계정으로 다시 가입 신청해야 합니다. 탈퇴를 계속하려면 재인증을 진행하세요.</p>
+            {auth.currentUser?.providerData[0]?.providerId === "password" && (
+              <label>비밀번호<input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+            )}
+            <button className="danger" disabled={busy}>{busy ? "탈퇴 처리 중…" : "계정 삭제 및 탈퇴"}</button>
+            <button type="button" className="secondary" disabled={busy} onClick={() => setWithdrawOpen(false)}>취소</button>
+          </form>
+        </div>
+      )}
     </section>
   );
 }
 function Admin({ config }) {
   const [users, setUsers] = useState([]),
-    [requests, setRequests] = useState([]),
     [form, setForm] = useState(config),
     [msg, setMsg] = useState("");
   useEffect(() => setForm(config), [config]);
@@ -1135,37 +1229,22 @@ function Admin({ config }) {
       query(collection(db, "users"), orderBy("createdAt", "desc")),
       (s) => setUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
     );
-    const b = onSnapshot(
-      query(
-        collection(db, "requests"),
-        where("status", "==", "pending"),
-        orderBy("createdAt", "desc"),
-      ),
-      (s) => setRequests(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
-      () => {},
-    );
     return () => {
       a();
-      b();
     };
   }, []);
-  async function approveUser(u, status) {
-    try {
-      await updateDoc(doc(db, "users", u.id), {
-        status,
-        updatedAt: serverTimestamp(),
-      });
-      setMsg(
-        status === "active" ? "가입을 승인했습니다." : "가입을 거절했습니다.",
-      );
-    } catch (e) {
-      setMsg(friendlyError(e));
-    }
-  }
   async function changeRole(u, role) {
     try {
-      await updateDoc(doc(db, "users", u.id), { role, updatedAt: serverTimestamp() });
+      await updateDoc(doc(db, "users", u.id), { role, status: u.status === "suspended" ? "suspended" : "active", updatedAt: serverTimestamp() });
       setMsg(`${u.name} 계정의 권한을 ${roles[role]}(으)로 변경했습니다.`);
+    } catch (e) { setMsg(friendlyError(e)); }
+  }
+  async function changeStatus(u) {
+    const status = u.status === "suspended" ? "active" : "suspended";
+    if (!window.confirm(`${u.name} 계정을 ${status === "suspended" ? "정지" : "해제"}합니까?`)) return;
+    try {
+      await updateDoc(doc(db, "users", u.id), { role: normalizeRole(u.role), status, updatedAt: serverTimestamp() });
+      setMsg(`${u.name} 계정을 ${status === "suspended" ? "정지" : "해제"}했습니다.`);
     } catch (e) { setMsg(friendlyError(e)); }
   }
   async function save(e) {
@@ -1174,63 +1253,12 @@ function Admin({ config }) {
       max = validAmount(form.maxPayment);
     if (!min || !max || min > max)
       return setMsg("결제 최소·최대 금액을 확인하세요.");
-    await setDoc(
-      doc(db, "settings", "config"),
-      {
-        ...form,
-        minPayment: min,
-        maxPayment: max,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    setMsg("운영 설정이 저장되었습니다.");
-  }
-  async function process(r, approved) {
     try {
-      await runTransaction(db, async (tx) => {
-        const rr = doc(db, "requests", r.id),
-          ur = doc(db, "users", r.uid);
-        const [rq, us] = await Promise.all([tx.get(rr), tx.get(ur)]);
-        if (rq.data().status !== "pending")
-          throw new Error("이미 처리된 신청입니다.");
-        if (!approved) {
-          tx.update(rr, {
-            status: "rejected",
-            processedAt: serverTimestamp(),
-            processedBy: auth.currentUser.uid,
-          });
-          return;
-        }
-        const delta = r.type === "topup" ? r.amount : -r.amount;
-        if (us.data().balance + delta < 0)
-          throw new Error("사용자 잔액이 부족합니다.");
-        const lr = doc(collection(db, "transactions"));
-        tx.update(ur, {
-          balance: us.data().balance + delta,
-          updatedAt: serverTimestamp(),
-        });
-        tx.update(rr, {
-          status: "approved",
-          processedAt: serverTimestamp(),
-          processedBy: auth.currentUser.uid,
-          transactionId: lr.id,
-        });
-        tx.set(lr, {
-          type: r.type,
-          amount: r.amount,
-          uid: r.uid,
-          participantUids: [r.uid],
-          createdAt: serverTimestamp(),
-          processedBy: auth.currentUser.uid,
-        });
-      });
-      setMsg("처리되었습니다.");
-    } catch (e) {
-      setMsg(friendlyError(e));
-    }
+      await setDoc(doc(db, "settings", "config"), { ...form, minPayment: min, maxPayment: max, maxTopupAmount: validAmount(form.maxTopupAmount) || 50000, qrExpirySeconds: Math.min(Math.max(validAmount(form.qrExpirySeconds) || 180, 60), 300), updatedAt: serverTimestamp(), updatedBy: auth.currentUser.uid }, { merge: true });
+      setMsg("운영 설정이 저장되었습니다.");
+    } catch (e) { setMsg(friendlyError(e)); }
   }
-  const pending = users.filter((x) => x.status === "pending");
+  const activeUsers = users.filter((x) => x.status === "active");
   return (
     <>
       <section className="stats">
@@ -1239,13 +1267,10 @@ function Admin({ config }) {
           <strong>{users.length}</strong>
         </article>
         <article>
-          <span>가입 승인 대기</span>
-          <strong>{pending.length}</strong>
+          <span>활성 계정</span>
+          <strong>{activeUsers.length}</strong>
         </article>
-        <article>
-          <span>처리할 신청</span>
-          <strong>{requests.length}</strong>
-        </article>
+        <article><span>포인트 환급</span><strong>관리자 검토</strong></article>
       </section>
       <form className="panel admin-settings" onSubmit={save}>
         <h2>사이트 운영 설정</h2>
@@ -1308,59 +1333,18 @@ function Admin({ config }) {
               }
             />
           </label>
+          <label>
+            1회 충전 한도
+            <input inputMode="numeric" value={form.maxTopupAmount || ""} onChange={(e) => setForm({ ...form, maxTopupAmount: e.target.value.replace(/\D/g, "") })} />
+          </label>
+          <label>
+            QR 유효 시간(초)
+            <input inputMode="numeric" value={form.qrExpirySeconds || ""} onChange={(e) => setForm({ ...form, qrExpirySeconds: e.target.value.replace(/\D/g, "") })} />
+          </label>
         </div>
         <button>운영 설정 저장</button>
       </form>
       {msg && <p className="notice">{msg}</p>}
-      <section className="panel">
-        <h2>회원가입 승인</h2>
-        <div className="list">
-          {!pending.length && (
-            <div className="empty">승인 대기 계정이 없습니다.</div>
-          )}
-          {pending.map((u) => (
-            <div className="row admin-row" key={u.id}>
-              <UserRound />
-              <div>
-                <b>{u.name}</b>
-                <small>{u.studentId} · 학생</small>
-              </div>
-              <button onClick={() => approveUser(u, "active")}>승인</button>
-              <button
-                className="danger"
-                onClick={() => approveUser(u, "rejected")}
-              >
-                거절
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="panel">
-        <h2>충전·환불 승인</h2>
-        <div className="list">
-          {!requests.length && (
-            <div className="empty">처리할 신청이 없습니다.</div>
-          )}
-          {requests.map((r) => (
-            <div className="row admin-row" key={r.id}>
-              <RefreshCw />
-              <div>
-                <b>
-                  {types[r.type]} {won(r.amount)}
-                </b>
-                <small>
-                  {users.find((u) => u.id === r.uid)?.name || r.uid}
-                </small>
-              </div>
-              <button onClick={() => process(r, true)}>승인</button>
-              <button className="danger" onClick={() => process(r, false)}>
-                거절
-              </button>
-            </div>
-          ))}
-        </div>
-      </section>
       <section className="panel">
         <h2>계정 현황</h2>
         <div className="list">
@@ -1377,10 +1361,13 @@ function Admin({ config }) {
               <select aria-label={`${u.name} 권한`} value={normalizeRole(u.role)} onChange={(e) => changeRole(u, e.target.value)}>
                 <option value="member">일반회원</option><option value="shop">상점</option><option value="admin2">2급 관리자</option><option value="admin1">1급 관리자</option>
               </select>
+              <button className={u.status === "suspended" ? "secondary" : "danger"} onClick={() => changeStatus(u)}>{u.status === "suspended" ? "정지 해제" : "계정 정지"}</button>
             </div>
           ))}
         </div>
       </section>
+      <RefundReviewList final />
+      <CancellationReviewList />
       <HistoryList admin />
     </>
   );
@@ -1406,12 +1393,8 @@ function AuthenticatedApp() {
     return (
       <main className="pending">
         <ShieldCheck />
-        <h1>
-          {profile.status === "pending"
-            ? "관리자 승인을 기다리고 있습니다"
-            : "사용할 수 없는 계정입니다"}
-        </h1>
-        <p>승인 후 축제은행 기능을 이용할 수 있습니다.</p>
+        <h1>사용할 수 없는 계정입니다</h1>
+        <p>계정 상태를 확인하려면 운영자에게 문의해 주세요.</p>
         <button onClick={() => signOut(auth)}>로그아웃</button>
       </main>
     );
@@ -1427,13 +1410,13 @@ function AuthenticatedApp() {
   let content;
   if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
   else if (page === "history.html")
-    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role === "member" || profile.role === "admin2"} />;
+    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role === "member"} canCancel={profile.role === "shop"} />;
   else if (page === "settings.html")
     content = <UserSettings profile={profile} config={config} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
-  else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} /> : <AccessDenied />;
+  else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
-  else if (page === "payment.html" && (profile.role === "member" || profile.role === "admin2"))
+  else if (page === "payment.html" && profile.role === "member")
     content = <Pay profile={profile} config={config} />;
   else content = <AccessDenied />;
   const tabs =
@@ -1455,7 +1438,6 @@ function AuthenticatedApp() {
           ? [
             ["index.html", Building2, "홈"],
             ["points.html", Banknote, "포인트"],
-            ["payment.html", QrCode, "QR 결제"],
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
           ]

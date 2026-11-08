@@ -1,3 +1,3 @@
 import {describe,it,expect} from 'vitest';import {makeOrderQr,makePaymentQr,parseOrderQr,parsePaymentQr} from './qr.js';
 describe('결제 QR',()=>{it('생성과 해석',()=>{const q=parsePaymentQr(makePaymentQr({boothId:'b1',boothName:'1반',amount:3000,memo:'떡볶이'}));expect(q.boothId).toBe('b1');expect(q.amount).toBe(3000)});it('다른 QR 거부',()=>expect(()=>parsePaymentQr('https://example.com')).toThrow())});
-describe('주문 QR',()=>{it('주문 식별자만 해석',()=>{const q=parseOrderQr(makeOrderQr({orderId:'o1',shopId:'s1'}));expect(q.orderId).toBe('o1');expect(q.shopId).toBe('s1')});it('잘못된 주문 QR 거부',()=>expect(()=>parseOrderQr('{"v":2}')).toThrow())});
+describe('주문 QR',()=>{it('BK1 주문 식별자만 해석',()=>{const q=parseOrderQr(makeOrderQr({orderId:'order_123456',shopId:'shop_123456'}));expect(q.orderId).toBe('order_123456');expect(q.shopId).toBe('shop_123456')});it('잘못된 주문 QR 거부',()=>expect(()=>parseOrderQr('{"v":2}')).toThrow())});

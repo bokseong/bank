@@ -1,4 +1,5 @@
 export function makePaymentQr({boothId,boothName,amount,memo=''}){return JSON.stringify({v:1,type:'festival-payment',boothId,boothName,amount:Number(amount),memo:String(memo).slice(0,40)})}
 export function parsePaymentQr(text){let value;try{value=JSON.parse(text)}catch{throw new Error('축제은행 결제 QR이 아닙니다.')}if(value?.v!==1||value?.type!=='festival-payment'||typeof value.boothId!=='string'||!Number.isInteger(value.amount)||value.amount<=0)throw new Error('올바르지 않은 결제 QR입니다.');return value}
-export function makeOrderQr({orderId,shopId}){return JSON.stringify({v:2,type:'festival-order',orderId:String(orderId),shopId:String(shopId)})}
-export function parseOrderQr(text){let value;try{value=JSON.parse(text)}catch{throw new Error('축제은행 주문 QR이 아닙니다.')}if(value?.v!==2||value?.type!=='festival-order'||typeof value.orderId!=='string'||!value.orderId||typeof value.shopId!=='string'||!value.shopId)throw new Error('올바르지 않은 주문 QR입니다.');return value}
+// QR에는 공개 주문 식별자만 담습니다. 금액·상품명은 Firestore 주문 문서가 기준입니다.
+export function makeOrderQr({orderId,shopId}){return `BK1|${encodeURIComponent(String(orderId))}|${encodeURIComponent(String(shopId))}`}
+export function parseOrderQr(text){const parts=String(text||'').split('|');if(parts.length!==3||parts[0]!=='BK1')throw new Error('복성고 축제은행 주문 QR이 아닙니다.');let orderId,shopId;try{orderId=decodeURIComponent(parts[1]);shopId=decodeURIComponent(parts[2])}catch{throw new Error('올바르지 않은 주문 QR입니다.')}if(!/^[A-Za-z0-9_-]{10,}$/.test(orderId)||!/^[A-Za-z0-9_-]{10,}$/.test(shopId))throw new Error('올바르지 않은 주문 QR입니다.');return {orderId,shopId}}
