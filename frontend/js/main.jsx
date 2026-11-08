@@ -92,43 +92,57 @@ function useSession() {
     user: null,
     profile: null,
     config: defaultConfig,
+    error: "",
   });
   useEffect(
     () =>
       onAuthStateChanged(auth, async (user) => {
-        if (!user)
-          return setS((x) => ({
+        try {
+          if (!user)
+            return setS((x) => ({
+              ...x,
+              loading: false,
+              user: null,
+              profile: null,
+              error: "",
+            }));
+          const ref = doc(db, "users", user.uid);
+          let p = await getDoc(ref);
+          if (!p.exists() && isRootAdmin(user)) {
+            await setDoc(ref, {
+              name: user.displayName || "최상위 관리자",
+              studentId: "ADMIN",
+              role: "admin1",
+              status: "active",
+              balance: 0,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            p = await getDoc(ref);
+          }
+          setS((x) => ({
             ...x,
             loading: false,
-            user: null,
-            profile: null,
+            user,
+            error: "",
+            profile: p.exists()
+              ? {
+                  id: p.id,
+                  ...p.data(),
+                  role: isRootAdmin(user) ? "admin1" : normalizeRole(p.data().role),
+                }
+              : null,
           }));
-        const ref = doc(db, "users", user.uid);
-        let p = await getDoc(ref);
-        if (!p.exists() && isRootAdmin(user)) {
-          await setDoc(ref, {
-            name: user.displayName || "최상위 관리자",
-            studentId: "ADMIN",
-            role: "admin1",
-            status: "active",
-            balance: 0,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          p = await getDoc(ref);
+        } catch (error) {
+          console.error("세션 초기화 실패", error);
+          setS((x) => ({
+            ...x,
+            loading: false,
+            user,
+            profile: null,
+            error: friendlyError(error),
+          }));
         }
-        setS((x) => ({
-          ...x,
-          loading: false,
-          user,
-          profile: p.exists()
-            ? {
-                id: p.id,
-                ...p.data(),
-                role: isRootAdmin(user) ? "admin1" : normalizeRole(p.data().role),
-              }
-            : null,
-        }));
       }),
     [],
   );
@@ -1378,9 +1392,19 @@ function App() {
   return <AuthenticatedApp />;
 }
 function AuthenticatedApp() {
-  const { loading, user, profile, config } = useSession();
+  const { loading, user, profile, config, error } = useSession();
   const page = location.pathname.split("/").pop() || "index.html";
   if (loading) return <div className="loading">불러오는 중…</div>;
+  if (error)
+    return (
+      <main className="loading">
+        <p>서비스 연결을 완료하지 못했습니다.</p>
+        <p className="error">{error}</p>
+        <p className="hint">관리자는 Firebase App Check의 웹 앱 등록과 reCAPTCHA 허용 도메인(bokseong.github.io)을 확인해 주세요.</p>
+        <button onClick={() => location.reload()}>다시 시도</button>
+        {user && <button onClick={() => signOut(auth)}>로그아웃</button>}
+      </main>
+    );
   if (!user) return page === "signup.html" ? <Signup /> : <Auth />;
   if (!profile)
     return (
