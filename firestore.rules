@@ -9,6 +9,10 @@ service cloud.firestore {
     function roleIs(values){ return signedIn() && me().data.status == 'active' && me().data.role in values; }
     function admin1(){ return rootAdmin() || roleIs(['admin1', 'admin']); }
     function admin2(){ return admin1() || roleIs(['admin2']); }
+    function canAdjustTarget(role){
+      return (admin1() && role in ['member','student','shop','booth','admin2','admin1','admin'])
+        || (roleIs(['admin2']) && role in ['member','student','shop','booth']);
+    }
     function shop(){ return roleIs(['shop', 'booth']); }
     function payer(){ return roleIs(['member', 'student']); }
     function active(){ return signedIn() && me().data.status == 'active' && config().systemOpen == true; }
@@ -35,7 +39,7 @@ service cloud.firestore {
     function validAdjustmentUserUpdate(uid){
       let id=request.resource.data.lastTransactionId;
       let tx=payTx(id).data;
-      return admin2() && config().topupEnabled == true && tx.type == 'adjustment' && tx.uid == uid && tx.processedBy == request.auth.uid
+      return admin2() && canAdjustTarget(resource.data.role) && config().topupEnabled == true && tx.type == 'adjustment' && tx.uid == uid && tx.processedBy == request.auth.uid
         && tx.amount is int && tx.amount > 0 && tx.amount <= config().maxTopupAmount && request.resource.data.balance == resource.data.balance + tx.amount
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance','lastTransactionId','updatedAt']);
     }
@@ -67,8 +71,8 @@ service cloud.firestore {
       let tx=request.resource.data;
       let before=get(userPath(tx.uid)).data;
       let after=getAfter(userPath(tx.uid)).data;
-      return admin2() && config().topupEnabled == true && tx.keys().hasOnly(['type','uid','amount','memo','participantUids','processedBy','createdAt'])
-        && tx.type == 'adjustment' && tx.uid != request.auth.uid && tx.processedBy == request.auth.uid && tx.amount is int && tx.amount > 0 && tx.amount <= config().maxTopupAmount
+      return admin2() && canAdjustTarget(before.role) && config().topupEnabled == true && tx.keys().hasOnly(['type','uid','amount','memo','participantUids','processedBy','createdAt'])
+        && tx.type == 'adjustment' && (admin1() || tx.uid != request.auth.uid) && tx.processedBy == request.auth.uid && tx.amount is int && tx.amount > 0 && tx.amount <= config().maxTopupAmount
         && tx.participantUids == [tx.uid] && after.balance == before.balance+tx.amount && after.lastTransactionId == request.resource.id;
     }
     function adminUserUpdate(uid){

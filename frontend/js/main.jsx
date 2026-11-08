@@ -1036,7 +1036,6 @@ function PointControl({ profile, config }) {
     e.preventDefault();
     const amount = validAmount(form.amount);
     if (!form.uid || !amount) return setMsg("대상과 올바른 충전 금액을 입력하세요.");
-    if (form.uid === profile.id) return setMsg("본인 계정에는 충전할 수 없습니다.");
     try {
       if (!window.confirm(`${users.find((u) => u.id === form.uid)?.name || "선택한 사용자"}에게 ${won(amount)}을 충전합니까?`)) return;
       if (!profile || !config?.topupEnabled) throw new Error("현재 포인트 충전이 중지되어 있습니다.");
@@ -1051,8 +1050,9 @@ function PointControl({ profile, config }) {
       setMsg("포인트 조절을 기록했습니다.");
     } catch (e) { setMsg(friendlyError(e)); }
   }
-  const visibleUsers = users.filter((u) => u.status === "active" && `${u.name || ""} ${u.studentId || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
-  return <><section className="panel point-control"><h2>포인트 충전</h2><p>현금 수납을 확인한 뒤 충전하세요. 본인 계정 충전은 허용되지 않으며, 모든 처리는 감사 로그에 남습니다.</p><form onSubmit={adjust}>
+  const allowedRoles = isAdmin1(profile) ? ["member", "shop", "admin2", "admin1"] : ["member", "shop"];
+  const visibleUsers = users.filter((u) => u.status === "active" && allowedRoles.includes(normalizeRole(u.role)) && `${u.name || ""} ${u.studentId || ""}`.toLowerCase().includes(search.trim().toLowerCase()));
+  return <><section className="panel point-control"><h2>포인트 충전</h2><p>{isAdmin1(profile) ? "1급 관리자는 모든 등급의 계정에 충전할 수 있습니다." : "2급 관리자는 일반회원과 상점 계정에만 충전할 수 있습니다."} 모든 처리는 감사 로그에 남습니다.</p><form onSubmit={adjust}>
     <label>이름·학번 검색<input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="예: 홍길동 또는 10101" /></label>
     <label>대상 계정<select required value={form.uid} onChange={(e) => setForm({ ...form, uid: e.target.value })}><option value="">선택하세요</option>{visibleUsers.map((u) => <option key={u.id} value={u.id}>{u.name} · {u.studentId || "학번 없음"} · {roles[normalizeRole(u.role)] || u.role} · {won(u.balance)}</option>)}</select></label>
     <label>충전 금액<input required inputMode="numeric" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/\D/g, "") })} placeholder="예: 1000" /></label>
