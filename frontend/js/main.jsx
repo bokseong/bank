@@ -63,6 +63,7 @@ const base = import.meta.env.BASE_URL;
 const googleProvider = new GoogleAuthProvider(),
   githubProvider = new GithubAuthProvider();
 const ROOT_ADMIN_EMAIL = "github.jwastro09@gmail.com";
+const THEME_STORAGE_KEY = "bokseong-festival-bank-theme";
 const isRootAdmin = (user) =>
   user?.emailVerified && user.email?.toLowerCase() === ROOT_ADMIN_EMAIL;
 const normalizeRole = (role) => legacyRoles[role] || role || "member";
@@ -85,6 +86,16 @@ async function writeOperationalLog(event, detail = "") {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   try { await push(ref(rtdb, `operationalLogs/${uid}`), { event: String(event).slice(0, 40), detail: String(detail).slice(0, 160), at: rtdbServerTimestamp() }); } catch { /* 로그 실패는 결제 흐름을 중단하지 않습니다. */ }
+}
+function useDarkMode() {
+  const [darkMode, setDarkMode] = useState(
+    () => localStorage.getItem(THEME_STORAGE_KEY) === "dark",
+  );
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark-theme", darkMode);
+    localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
+  }, [darkMode]);
+  return [darkMode, setDarkMode];
 }
 function useSession() {
   const [s, setS] = useState({
@@ -1078,7 +1089,7 @@ function CancellationReviewList() {
   const pending = items.filter((x) => x.status === "pending");
   return <section className="panel refund-review"><h2>결제 취소 최종 승인</h2><div className="list">{!pending.length && <div className="empty">처리할 결제 취소 신청이 없습니다.</div>}{pending.map((x) => <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.shopName} · {won(x.amount)}</b><small>결제 취소 신청 · {x.memo || "상품 정보 없음"}</small></div><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></div>)}</div>{msg && <p className="notice">{msg}</p>}</section>;
 }
-function UserSettings({ profile, config }) {
+function UserSettings({ profile, config, darkMode, setDarkMode }) {
   const [msg, setMsg] = useState(""),
     [withdrawOpen, setWithdrawOpen] = useState(false),
     [password, setPassword] = useState(""),
@@ -1181,6 +1192,13 @@ function UserSettings({ profile, config }) {
           <dd>{won(profile.balance)}</dd>
         </div>
       </dl>
+      <label className="switch-row">
+        <div>
+          <b>다크 모드</b>
+          <small>어두운 화면 테마를 이 기기에 적용합니다.</small>
+        </div>
+        <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />
+      </label>
       <label className="switch-row">
         <div>
           <b>결제 전 비밀번호 확인</b>
@@ -1387,11 +1405,12 @@ function Admin({ config }) {
   );
 }
 function App() {
+  const [darkMode, setDarkMode] = useDarkMode();
   const page = location.pathname.split("/").pop() || "index.html";
   if (page === "about.html") return <About />;
-  return <AuthenticatedApp />;
+  return <AuthenticatedApp darkMode={darkMode} setDarkMode={setDarkMode} />;
 }
-function AuthenticatedApp() {
+function AuthenticatedApp({ darkMode, setDarkMode }) {
   const { loading, user, profile, config, error } = useSession();
   const page = location.pathname.split("/").pop() || "index.html";
   if (loading) return <div className="loading">불러오는 중…</div>;
@@ -1436,7 +1455,7 @@ function AuthenticatedApp() {
   else if (page === "history.html")
     content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role === "member"} canCancel={profile.role === "shop"} />;
   else if (page === "settings.html")
-    content = <UserSettings profile={profile} config={config} />;
+    content = <UserSettings profile={profile} config={config} darkMode={darkMode} setDarkMode={setDarkMode} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
