@@ -1388,23 +1388,25 @@ function Admin({ config }) {
       {msg && <p className="notice">{msg}</p>}
       <section className="panel">
         <h2>계정 현황</h2>
-        <div className="list">
-          {users.map((u) => (
-            <div className="row" key={u.id}>
-              <UserRound />
-              <div>
-                <b>{u.name}</b>
-                <small>
-                  {u.studentId || "-"} · {roles[normalizeRole(u.role)] || u.role} · {u.status}
-                </small>
-              </div>
-              <strong>{won(u.balance)}</strong>
-              <select aria-label={`${u.name} 권한`} value={normalizeRole(u.role)} onChange={(e) => changeRole(u, e.target.value)}>
-                <option value="member">일반회원</option><option value="shop">상점</option><option value="admin2">2급 관리자</option><option value="admin1">1급 관리자</option>
-              </select>
-              <button className={u.status === "suspended" ? "secondary" : "danger"} onClick={() => changeStatus(u)}>{u.status === "suspended" ? "정지 해제" : "계정 정지"}</button>
-            </div>
-          ))}
+        <div className="account-table-wrap">
+          <table className="account-table">
+            <thead>
+              <tr><th>이름</th><th>학번</th><th>현재 등급</th><th>포인트</th><th>변경할 등급</th><th>계정 상태</th><th>관리</th></tr>
+            </thead>
+            <tbody>
+              {users.map((u) => (
+                <tr key={u.id}>
+                  <td>{u.name || "-"}</td>
+                  <td>{u.studentId || "-"}</td>
+                  <td>{roles[normalizeRole(u.role)] || u.role}</td>
+                  <td>{won(u.balance)}</td>
+                  <td><select aria-label={`${u.name} 변경할 권한`} value={normalizeRole(u.role)} onChange={(e) => changeRole(u, e.target.value)}><option value="member">일반회원</option><option value="shop">상점</option><option value="admin2">2급 관리자</option><option value="admin1">1급 관리자</option></select></td>
+                  <td><span className={`account-status ${u.status === "suspended" ? "suspended" : "active"}`}>{u.status === "suspended" ? "정지" : "활성"}</span></td>
+                  <td><button className={u.status === "suspended" ? "secondary" : "danger"} onClick={() => changeStatus(u)}>{u.status === "suspended" ? "정지 해제" : "계정 정지"}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
       <RefundReviewList final />
