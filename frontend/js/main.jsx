@@ -357,7 +357,7 @@ function About() {
           <article className="info-card legal-body" dangerouslySetInnerHTML={{ __html: legal.terms || "<p>이용약관을 불러오는 중입니다…</p>" }} />
           <article className="info-card legal-body" dangerouslySetInnerHTML={{ __html: legal.privacy || "<p>개인정보 수집 안내를 불러오는 중입니다…</p>" }} />
         </section>
-        <p className="sync-note">이용약관과 개인정보 수집·이용 안내는 회원가입 페이지의 최신 내용과 자동으로 동기화됩니다.</p>
+        <p className="sync-note"> </p>
       </div>
     </main>
   );
