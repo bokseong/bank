@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
-import { getAuth } from 'firebase/auth';
+import { browserPopupRedirectResolver, browserSessionPersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getDatabase } from 'firebase/database';
 
@@ -12,7 +12,8 @@ export const appCheck=initializeAppCheck(app,{
   provider:new ReCaptchaEnterpriseProvider('6LeTORYuAAAAAMvEjJ8cbklms8rWzp9TTzJXnS1d'),
   isTokenAutoRefreshEnabled:true,
 });
-export const auth=getAuth(app);
+// Keep authentication only for the current browser session; closing the browser requires login again.
+export const auth=initializeAuth(app,{persistence:browserSessionPersistence,popupRedirectResolver:browserPopupRedirectResolver});
 export const db=getFirestore(app);
 export const rtdb=getDatabase(app);
 isSupported().then(ok=>ok&&getAnalytics(app)).catch(()=>{});
