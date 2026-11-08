@@ -408,7 +408,7 @@ function About() {
 }
 function HomeDashboard({ profile, config }) {
   const destinations = isAdmin1(profile)
-    ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "전체 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+    ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "points.html", icon: Banknote, title: "포인트 충전", description: "모든 등급의 계정에 포인트를 충전합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "전체 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
     : profile.role === "admin2"
       ? [{ href: "points.html", icon: Banknote, title: "포인트 조절", description: "현금 수납 확인 후 포인트를 충전하고 환불을 검토합니다." }, { href: "history.html", icon: History, title: "거래 내역", description: "포인트 조절과 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
       : profile.role === "shop"
@@ -1498,6 +1498,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
           : [
             ["index.html", Building2, "홈"],
             ["admin.html", ShieldCheck, "관리"],
+            ["points.html", Banknote, "충전"],
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
           ];
