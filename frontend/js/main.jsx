@@ -372,6 +372,10 @@ function SiteFooter() {
         <a href="https://github.com/jw-astro09" target="_blank" rel="noreferrer">
           jw-astro09
         </a>
+        {/* ,
+        <a href="https://github.com/kimdduramy" target="_blank" rel="noreferrer">
+        kimdduramy
+        </a> */}
       </p>
       <div className="recaptcha-protection" aria-label="reCAPTCHA 및 Google Cloud Fraud Defense 보호 사용 중">
         <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" alt="reCAPTCHA" width="34" height="34" />
