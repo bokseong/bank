@@ -97,6 +97,20 @@ function useDarkMode() {
   }, [darkMode]);
   return [darkMode, setDarkMode];
 }
+function requestProfileDetails() {
+  alert("처음 로그인한 계정입니다. 이름과 학번을 입력해 계정 정보를 생성해 주세요.");
+  while (true) {
+    const name = window.prompt("이름을 입력하세요.");
+    if (name === null) return null;
+    const studentId = window.prompt("학번을 숫자로 입력하세요.");
+    if (studentId === null) return null;
+    const cleanName = name.trim();
+    const cleanStudentId = studentId.replace(/\D/g, "");
+    if (cleanName && cleanName.length <= 20 && cleanStudentId && cleanStudentId.length <= 10)
+      return { name: cleanName, studentId: cleanStudentId };
+    alert("이름(1~20자)과 학번(숫자 1~10자리)을 확인해 주세요.");
+  }
+}
 function useSession() {
   const [s, setS] = useState({
     loading: true,
@@ -105,6 +119,7 @@ function useSession() {
     config: defaultConfig,
     error: "",
   });
+  const provisioningRef = useRef(false);
   useEffect(
     () =>
       onAuthStateChanged(auth, async (user) => {
@@ -130,6 +145,27 @@ function useSession() {
               updatedAt: serverTimestamp(),
             });
             p = await getDoc(ref);
+          }
+          if (!p.exists() && !isRootAdmin(user)) {
+            if (provisioningRef.current) return;
+            provisioningRef.current = true;
+            const details = requestProfileDetails();
+            if (!details) {
+              alert("이름과 학번을 입력하지 않아 로그아웃되었습니다.");
+              await signOut(auth);
+              return;
+            }
+            await setDoc(ref, {
+              ...details,
+              role: "member",
+              status: "active",
+              balance: 0,
+              requirePaymentPassword: true,
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp(),
+            });
+            p = await getDoc(ref);
+            provisioningRef.current = false;
           }
           setS((x) => ({
             ...x,
@@ -233,13 +269,7 @@ function Auth() {
     setBusy(true);
     setError("");
     try {
-      const result = await signInWithPopup(auth, provider);
-      const profile = await getDoc(doc(db, "users", result.user.uid));
-      if (!profile.exists() && !isRootAdmin(result.user)) {
-        await signOut(auth);
-        alert("계정 정보가 없습니다. 회원가입을 먼저 진행해 주세요");
-        return;
-      }
+      await signInWithPopup(auth, provider);
     } catch (e) {
       setError(friendlyError(e));
     } finally {
