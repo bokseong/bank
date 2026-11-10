@@ -31,6 +31,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { push, ref, serverTimestamp as rtdbServerTimestamp } from "firebase/database";
+import { httpsCallable } from "firebase/functions";
 import { BrowserQRCodeReader } from "@zxing/browser";
 import {
   Banknote,
@@ -46,7 +47,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { auth, db, rtdb } from "./firebase";
+import { auth, db, functions, rtdb } from "./firebase";
 import { friendlyError, validAmount, won } from "./domain";
 import { makeOrderQr, parseOrderQr } from "./qr";
 import "../css/style.css";
@@ -80,6 +81,9 @@ const defaultConfig = {
   minPayment: 1,
   maxPayment: 1000000,
   maxTopupAmount: 50000,
+  autoTopupEnabled: false,
+  bankAccountLabel: "학생회 운영 계좌",
+  bankAccountNumber: "",
   qrExpirySeconds: 180,
 };
 async function writeOperationalLog(event, detail = "") {
@@ -1005,6 +1009,60 @@ function Shop({ profile, config }) {
     </>
   );
 }
+function AutoTopUp({ profile, config }) {
+  const [amount, setAmount] = useState("5000"), [order, setOrder] = useState(null), [msg, setMsg] = useState(""), [busy, setBusy] = useState(false);
+  const enabled = config.autoTopupEnabled === true && config.topupEnabled !== false;
+  useEffect(() => {
+    if (!profile?.id) return undefined;
+    return onSnapshot(query(collection(db, "topUpOrders"), where("uid", "==", profile.id), orderBy("createdAt", "desc"), limit(1)), (snap) => {
+      const latest = snap.docs[0];
+      if (latest) setOrder({ id: latest.id, ...latest.data() });
+    }, () => setMsg("최근 충전 요청을 불러올 수 없습니다."));
+  }, [profile?.id]);
+  async function copy(value, label) {
+    try { await navigator.clipboard.writeText(String(value)); setMsg(`${label}을(를) 복사했습니다.`); }
+    catch { setMsg("복사하지 못했습니다. 길게 눌러 직접 복사해 주세요."); }
+  }
+  async function createOrder(e) {
+    e.preventDefault();
+    const requestedAmount = validAmount(amount, config.maxTopupAmount);
+    if (!requestedAmount) return setMsg(`1원 이상 ${won(config.maxTopupAmount)} 이하로 입력해 주세요.`);
+    setBusy(true); setMsg("");
+    try {
+      const call = httpsCallable(functions, "createTopUpOrder", { limitedUseAppCheckTokens: true });
+      const result = await call({ requestedAmount });
+      setOrder({ id: result.data.orderId, ...result.data, status: "pending", expiresAt: Timestamp.fromMillis(result.data.expiresAt) });
+      setMsg("고유 입금 금액을 발급했습니다. 안내 금액 그대로 송금해 주세요.");
+    } catch (error) { setMsg(friendlyError(error)); }
+    finally { setBusy(false); }
+  }
+  const expired = order?.expiresAt?.toMillis?.() && order.expiresAt.toMillis() < Date.now();
+  return <>
+    <section className="panel auto-topup">
+      <h2>자동 계좌 충전</h2>
+      <p>입금자명을 바꾸지 않아도 됩니다. 시스템이 발급한 <b>정확한 입금 금액</b>을 학생회 계좌로 송금하면, 운영 기기의 은행 입금 알림과 자동으로 대조해 포인트를 지급합니다.</p>
+      {!enabled && <p className="error">자동 계좌 충전이 아직 준비되지 않았습니다. 운영 기기 연결 상태를 관리자에게 확인해 주세요.</p>}
+      <form onSubmit={createOrder}>
+        <label>원하는 충전 금액<input disabled={!enabled || busy} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="예: 5000" /></label>
+        <button disabled={!enabled || busy}>{busy ? "고유 금액을 발급하는 중…" : "입금 금액 발급"}</button>
+      </form>
+    </section>
+    {order && <section className="panel topup-order">
+      <h2>{order.status === "paid" ? "충전 완료" : expired ? "입금 기한 만료" : "송금 안내"}</h2>
+      {order.status === "paid" ? <p className="success">{won(order.assignedAmount)}이 자동 충전되었습니다. 지갑 잔액과 거래 내역에서 확인해 주세요.</p> : <>
+        <div className="topup-amount"><span>반드시 송금할 금액</span><strong>{won(order.assignedAmount)}</strong><small>충전 포인트도 {won(order.assignedAmount)}입니다.</small></div>
+        <dl className="topup-details">
+          <div><dt>받는 계좌</dt><dd>{order.bankAccountLabel || config.bankAccountLabel}</dd></div>
+          <div><dt>계좌번호</dt><dd>{order.bankAccountNumber || config.bankAccountNumber || "관리자 설정 필요"}</dd></div>
+          <div><dt>입금 기한</dt><dd>{order.expiresAt?.toDate?.().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) || "10분"}까지</dd></div>
+        </dl>
+        <div className="topup-actions"><button type="button" className="secondary" onClick={() => copy(order.assignedAmount, "입금 금액")}>금액 복사</button><button type="button" className="secondary" onClick={() => copy(order.bankAccountNumber || config.bankAccountNumber, "계좌번호")}>계좌번호 복사</button></div>
+        <p className="hint">은행 앱에서 평소처럼 송금하면 됩니다. 입금자명·메모는 바꾸지 마세요. 입금 알림 수신 후 자동 충전되며, 지연·불일치 건은 운영자가 확인합니다.</p>
+      </>}
+    </section>}
+    {msg && <p className="notice">{msg}</p>}
+  </>;
+}
 function PointControl({ profile, config }) {
   const [users, setUsers] = useState([]),
     [form, setForm] = useState({ uid: "", amount: "", memo: "" }),
@@ -1278,6 +1336,7 @@ function Admin({ config }) {
             ["systemOpen", "사이트 운영"],
             ["paymentsEnabled", "결제"],
             ["topupEnabled", "충전 신청"],
+            ["autoTopupEnabled", "은행 알림 자동 충전"],
             ["refundEnabled", "환불 신청"],
             ["forcePaymentPassword", "결제 비밀번호 강제"],
           ].map(([k, label]) => (
@@ -1326,6 +1385,10 @@ function Admin({ config }) {
             QR 유효 시간(초)
             <input inputMode="numeric" value={form.qrExpirySeconds || ""} onChange={(e) => setForm({ ...form, qrExpirySeconds: e.target.value.replace(/\D/g, "") })} />
           </label>
+        </div>
+        <div className="limit-grid">
+          <label>자동 충전 계좌 표시명<input maxLength="60" value={form.bankAccountLabel || ""} onChange={(e) => setForm({ ...form, bankAccountLabel: e.target.value })} placeholder="예: 복성고 학생회" /></label>
+          <label>자동 충전 계좌번호<input inputMode="numeric" maxLength="32" value={form.bankAccountNumber || ""} onChange={(e) => setForm({ ...form, bankAccountNumber: e.target.value.replace(/[^0-9-]/g, "") })} placeholder="- 없이 입력 권장" /></label>
         </div>
         <button>운영 설정 저장</button>
       </form>
@@ -1413,6 +1476,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
     content = <UserSettings profile={profile} config={config} darkMode={darkMode} setDarkMode={setDarkMode} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
+  else if (page === "topup.html") content = profile.role === "member" ? <AutoTopUp profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "payment.html" && profile.role === "member")
     content = <Pay profile={profile} config={config} />;
@@ -1422,6 +1486,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
       ? [
           ["index.html", Building2, "홈"],
           ["payment.html", QrCode, "QR 결제"],
+          ["topup.html", Banknote, "충전"],
           ["history.html", History, "내역"],
           ["settings.html", Settings, "설정"],
         ]

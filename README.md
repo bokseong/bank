@@ -23,6 +23,9 @@
 - `frontend/booth.html`: 상점 상품·가격 등록 및 임시 주문 QR 페이지
 - `frontend/admin.html`: 1급 관리자용 계정 권한·운영 관리 페이지
 - `frontend/points.html`: 2급 관리자 이상 포인트 조절 페이지
+- `frontend/topup.html`: 학생용 고유 금액 자동 계좌 충전 신청 페이지
+- `functions/`: Blaze Cloud Functions — 고유 입금 금액 발급·수집기 알림 검증·원자적 포인트 지급
+- `collector-android/`: 학생회 수신 기기에만 설치하는 Android 은행 알림 수집기
 - `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
 - `frontend/css/`: 화면 스타일
 - `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
@@ -86,6 +89,33 @@ Firestore Rules와 indexes를 변경했을 때만 별도로 실행합니다.
 npx firebase-tools login
 npm run deploy:firestore
 ```
+
+## 자동 계좌 충전 수집기
+
+이 기능은 PG·은행 API 없이 학생회 운영 계좌의 **은행 앱 입금 알림**을 전용 Android 기기에서 읽어 자동 대조합니다. 학생은 입금자명을 바꾸지 않고, 사이트가 안내하는 정확한 고유 금액만 송금합니다. 실제 입금액과 포인트가 같도록 고유 금액 전체를 포인트로 지급합니다.
+
+1. Firebase 프로젝트가 Blaze 요금제인지 확인합니다.
+2. `functions`에서 의존성을 설치하고 Functions를 배포합니다.
+
+```powershell
+Set-Location .\functions
+npm install
+Set-Location ..
+npx firebase-tools deploy --only functions,firestore:rules,firestore:indexes
+```
+
+3. `collector-android\app\google-services.json`에 Firebase Console에서 내려받은 Android 앱 설정 파일을 넣습니다. 이 파일은 저장소에 올리지 않습니다.
+4. Android 프로젝트를 열어 전용 운영 기기에 설치합니다. 앱에 수집기 전용 Firebase 계정으로 로그인하고, 실제 은행 앱의 package name만 등록한 뒤 Android 설정에서 **알림 접근 권한**을 허용합니다.
+5. 앱에 표시된 `기기 ID`와 `공개키(SPKI)`를 복사하고, Service Account 환경을 설정한 PowerShell에서 수집기를 등록합니다.
+
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\안전한경로\hs-bokseong-service-account.json'
+node .\scripts\register-collector.mjs 'collector@example.com' 'ANDROID_ID' 'SPKI_BASE64' '은행앱.package.name'
+```
+
+6. 수집기 앱에서 로그아웃 후 재로그인해 권한 토큰을 갱신합니다. 관리자 페이지에서 자동 계좌 충전과 계좌 안내를 설정한 뒤, 실제 은행 앱 알림으로 최소 20회 이상 소액 입금 시험을 합니다.
+
+은행별 알림 문구는 다르므로 `collector-android/.../BankNotificationListener.kt`의 `parseAmount`, `parseSender`는 실제 수신된 알림 형식으로 검증·조정해야 합니다. 알림에 금액이 없거나 파싱하지 못한 건은 자동 충전되지 않습니다.
 
 QR 카메라 인식은 보안 연결에서만 사용할 수 있으므로 실제 기기 점검은 GitHub Pages의 HTTPS 주소에서 진행해야 합니다. 브라우저의 카메라 권한 요청을 허용해야 합니다.
 

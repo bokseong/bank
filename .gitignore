@@ -5,3 +5,7 @@ firebase-debug.log
 service-account*.json
 .env*
 !.env.example
+functions/node_modules/
+collector-android/.gradle/
+collector-android/app/build/
+collector-android/app/google-services.json
