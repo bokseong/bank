@@ -15,7 +15,6 @@
 ## 폴더 구조
 
 - `frontend/index.html`: 로그인 후 역할별 주요 메뉴로 이동하는 홈 페이지
-- `frontend/signup.html`: 회원가입 페이지
 - `frontend/about.html`: 운영 담당자, 환전소, 이용약관 및 개인정보 수집 안내 페이지
 - `frontend/wallet.html`: 학생 지갑 페이지
 - `frontend/payment.html`: QR 결제 페이지
@@ -29,8 +28,7 @@
 - `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
 - `dist/`: production build 결과(GitHub Pages 배포 대상)
 
-회원가입 이용약관과 개인정보 수집·이용 안내 본문은 `frontend/signup.html`의 `terms-content`, `privacy-content` 템플릿에 있습니다. JavaScript를 수정하지 않고 해당 HTML 본문만 편집할 수 있습니다.
-`about.html`은 열릴 때마다 위 두 템플릿을 `signup.html`에서 직접 읽으므로 같은 내용을 중복 수정할 필요가 없습니다. 담당자 이메일과 환전소 위치는 `frontend/about.html`의 `site-contact-content` 템플릿에서 수정합니다.
+이용약관과 개인정보 수집·이용 안내, 담당자 이메일과 환전소 위치는 `frontend/about.html`의 템플릿에서 관리합니다.
 
 이메일이 검증된 `github.jwastro09@gmail.com` 계정은 최상위 관리자로 처리되며, 최초 로그인 시 관리자 프로필이 자동 생성됩니다.
 

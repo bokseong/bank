@@ -299,11 +299,8 @@ function Auth() {
           </button>
         </form>
         <ProviderButtons busy={busy} onProvider={oauth} mode="로그인" />
-        <a className="auth-link" href={`${base}signup.html`}>
-          계정이 없나요? 회원가입
-        </a>
         <small className="auth-help">
-          계정 또는 비밀번호를 잊었다면 축제은행 관리자에게 문의하세요.
+          계정 발급 또는 비밀번호 재설정이 필요하면 축제은행 관리자에게 문의하세요.
         </small>
       </section>
     </main>
@@ -358,27 +355,10 @@ function SiteFooter() {
   );
 }
 function About() {
-  const [legal, setLegal] = useState({ terms: "", privacy: "" });
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch(`${base}signup.html`, { cache: "no-store", signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("회원가입 페이지를 불러올 수 없습니다.");
-        return response.text();
-      })
-      .then((source) => {
-        const page = new DOMParser().parseFromString(source, "text/html");
-        setLegal({
-          terms: page.getElementById("terms-content")?.innerHTML || "",
-          privacy: page.getElementById("privacy-content")?.innerHTML || "",
-        });
-      })
-      .catch((e) => {
-        if (e.name !== "AbortError") setError(e.message);
-      });
-    return () => controller.abort();
-  }, []);
+  const legal = {
+    terms: document.getElementById("terms-content")?.innerHTML || "",
+    privacy: document.getElementById("privacy-content")?.innerHTML || "",
+  };
   const contacts = document.getElementById("site-contact-content")?.innerHTML || "";
   return (
     <main className="about-page">
@@ -396,7 +376,6 @@ function About() {
           <h2>운영 담당 및 환전소</h2>
           <div dangerouslySetInnerHTML={{ __html: contacts }} />
         </section>
-        {error && <div className="error">{error}</div>}
         <section className="legal-grid" aria-live="polite">
           <article className="info-card legal-body" dangerouslySetInnerHTML={{ __html: legal.terms || "<p>이용약관을 불러오는 중입니다…</p>" }} />
           <article className="info-card legal-body" dangerouslySetInnerHTML={{ __html: legal.privacy || "<p>개인정보 수집 안내를 불러오는 중입니다…</p>" }} />
@@ -438,9 +417,6 @@ function Signup() {
   const [form, setForm] = useState({
       name: "",
       studentId: "",
-      bankName: "",
-      accountNumber: "",
-      accountHolderName: "",
       email: "",
       password: "",
       confirm: "",
@@ -464,22 +440,12 @@ function Signup() {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  const refundAccountData = () => ({
-    bankName: form.bankName.trim(),
-    accountNumber: form.accountNumber.replace(/\D/g, ""),
-    accountHolderName: form.accountHolderName.trim(),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
   async function createProfile(user) {
-    const batch = writeBatch(db);
-    batch.set(doc(db, "users", user.uid), profileData());
-    batch.set(doc(db, "refundAccounts", user.uid), refundAccountData());
-    await batch.commit();
+    await setDoc(doc(db, "users", user.uid), profileData());
   }
   function validIdentity() {
-    if (!form.name.trim() || !form.studentId.trim() || !form.bankName.trim() || !form.accountHolderName.trim() || form.accountNumber.replace(/\D/g, "").length < 6) {
-      setError("이름, 학번, 은행명, 예금주, 올바른 계좌번호를 입력해 주세요.");
+    if (!form.name.trim() || !form.studentId.trim()) {
+      setError("이름과 학번을 입력해 주세요.");
       return false;
     }
     if (!form.termsAccepted || !form.privacyAccepted) {
@@ -520,17 +486,15 @@ function Signup() {
     try {
       const result = await signInWithPopup(auth, provider);
       const existing = await getDoc(doc(db, "users", result.user.uid));
-      if (existing.exists())
+      if (existing.exists()) {
+        await signOut(auth);
         throw new Error(
           "이미 가입된 계정입니다. 로그인 페이지를 이용해 주세요.",
         );
-      try {
-        await createProfile(result.user);
-      } catch (e) {
-        await deleteUser(result.user);
-        throw e;
       }
+      await createProfile(result.user);
     } catch (e) {
+      await signOut(auth).catch(() => {});
       setError(friendlyError(e));
     } finally {
       setBusy(false);
@@ -575,18 +539,6 @@ function Signup() {
               setForm({ ...form, studentId: e.target.value.replace(/\D/g, "") })
             }
           />
-        </label>
-        <label>
-          환급 은행명
-          <input required maxLength="30" value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} placeholder="예: 국민은행" />
-        </label>
-        <label>
-          환급 계좌번호
-          <input required inputMode="numeric" maxLength="30" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value.replace(/[^\d-]/g, "") })} placeholder="숫자와 하이픈만 입력" />
-        </label>
-        <label>
-          예금주명
-          <input required maxLength="20" value={form.accountHolderName} onChange={(e) => setForm({ ...form, accountHolderName: e.target.value })} placeholder="계좌 예금주 이름" />
         </label>
         <div className="legal-consent">
           <label className="consent-row">
@@ -1071,16 +1023,12 @@ function RefundRequestForm({ profile, config }) {
   return <form className="refund-request" onSubmit={submit}><h3>포인트 환불 신청</h3><p>등록한 환급 계좌로 이체하기 전 1급 관리자의 최종 승인이 필요합니다.</p><label>환불 금액<input required inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder={`잔액 ${won(profile.balance)} 이하`} /></label><label>사유(선택)<input maxLength="80" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="예: 축제 종료 잔액 환급" /></label><button>환불 신청</button>{msg && <p className="notice">{msg}</p>}</form>;
 }
 function RefundReviewList({ final }) {
-  const [items, setItems] = useState([]), [accounts, setAccounts] = useState({}), [msg, setMsg] = useState("");
+  const [items, setItems] = useState([]), [msg, setMsg] = useState("");
   useEffect(() => onSnapshot(query(collection(db, "refundRequests"), orderBy("createdAt", "desc"), limit(100)), (s) => setItems(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => setMsg("환불 신청 목록을 불러올 수 없습니다.")), []);
-  useEffect(() => {
-    if (!final) return undefined;
-    return onSnapshot(collection(db, "refundAccounts"), (s) => setAccounts(Object.fromEntries(s.docs.map((d) => [d.id, d.data()]))), () => setMsg("환급 계좌 정보를 불러올 수 없습니다."));
-  }, [final]);
   const visible = final ? items.filter((x) => ["pending", "reviewed"].includes(x.status)) : items.filter((x) => x.status === "pending");
   async function review(id) { try { await updateDoc(doc(db, "refundRequests", id), { status: "reviewed", reviewedBy: auth.currentUser.uid, reviewedAt: serverTimestamp() }); void writeOperationalLog("refund_reviewed", id); setMsg("1급 관리자의 최종 승인을 위해 검토 완료로 표시했습니다."); } catch (e) { setMsg(friendlyError(e)); } }
-  async function finish(id, approved) { try { if (!window.confirm(approved ? "계좌이체를 진행할 환불을 최종 승인합니까?" : "환불 신청을 반려합니까?")) return; const requestRef = doc(db, "refundRequests", id), request = await getDoc(requestRef); if (!request.exists()) throw new Error("환불 신청을 찾을 수 없습니다."); if (!approved) { await updateDoc(requestRef, { status: "rejected", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp() }); } else { const data = request.data(), targetRef = doc(db, "users", data.requesterUid), target = await getDoc(targetRef); if (!target.exists() || target.data().balance < data.amount) throw new Error("대상 잔액이 부족합니다."); const transactionRef = doc(collection(db, "transactions")), batch = writeBatch(db); batch.update(targetRef, { balance: target.data().balance - data.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() }); batch.update(requestRef, { status: "approved", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp(), transactionId: transactionRef.id }); batch.set(transactionRef, { type: "refund", uid: data.requesterUid, amount: data.amount, memo: data.memo || "", participantUids: [data.requesterUid], processedBy: auth.currentUser.uid, refundRequestId: id, createdAt: serverTimestamp() }); await batch.commit(); } setMsg(approved ? "환불이 승인되었습니다. 실제 계좌이체 후 처리 상태를 확인하세요." : "환불 신청을 반려했습니다."); } catch (e) { setMsg(friendlyError(e)); } }
-  return <section className="panel refund-review"><h2>{final ? "환불 최종 승인" : "환불 검토 대기"}</h2><div className="list">{!visible.length && <div className="empty">처리할 환불 신청이 없습니다.</div>}{visible.map((x) => { const account = accounts[x.requesterUid]; return <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.requesterName} · {won(x.amount)}</b><small>{x.requesterRole === "shop" ? "상점" : "사용자"} · {x.memo || "사유 없음"} · {x.status}</small>{final && <small>환급 계좌: {account ? `${account.bankName} ${account.accountNumber} (${account.accountHolderName})` : "등록 정보 없음"}</small>}</div>{final ? <><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></> : <button onClick={() => review(x.id)}>검토 완료</button>}</div>; })}</div>{msg && <p className="notice">{msg}</p>}</section>;
+  async function finish(id, approved) { try { if (!window.confirm(approved ? "환불을 최종 승인합니까?" : "환불 신청을 반려합니까?")) return; const requestRef = doc(db, "refundRequests", id), request = await getDoc(requestRef); if (!request.exists()) throw new Error("환불 신청을 찾을 수 없습니다."); if (!approved) { await updateDoc(requestRef, { status: "rejected", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp() }); } else { const data = request.data(), targetRef = doc(db, "users", data.requesterUid), target = await getDoc(targetRef); if (!target.exists() || target.data().balance < data.amount) throw new Error("대상 잔액이 부족합니다."); const transactionRef = doc(collection(db, "transactions")), batch = writeBatch(db); batch.update(targetRef, { balance: target.data().balance - data.amount, lastTransactionId: transactionRef.id, updatedAt: serverTimestamp() }); batch.update(requestRef, { status: "approved", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp(), transactionId: transactionRef.id }); batch.set(transactionRef, { type: "refund", uid: data.requesterUid, amount: data.amount, memo: data.memo || "", participantUids: [data.requesterUid], processedBy: auth.currentUser.uid, refundRequestId: id, createdAt: serverTimestamp() }); await batch.commit(); } setMsg(approved ? "환불이 승인되었습니다." : "환불 신청을 반려했습니다."); } catch (e) { setMsg(friendlyError(e)); } }
+  return <section className="panel refund-review"><h2>{final ? "환불 최종 승인" : "환불 검토 대기"}</h2><div className="list">{!visible.length && <div className="empty">처리할 환불 신청이 없습니다.</div>}{visible.map((x) => <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.requesterName} · {won(x.amount)}</b><small>{x.requesterRole === "shop" ? "상점" : "사용자"} · {x.memo || "사유 없음"} · {x.status}</small></div>{final ? <><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></> : <button onClick={() => review(x.id)}>검토 완료</button>}</div>)}</div>{msg && <p className="notice">{msg}</p>}</section>;
 }
 function CancellationReviewList() {
   const [items, setItems] = useState([]), [msg, setMsg] = useState("");
@@ -1102,16 +1050,7 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
   const [msg, setMsg] = useState(""),
     [withdrawOpen, setWithdrawOpen] = useState(false),
     [password, setPassword] = useState(""),
-    [busy, setBusy] = useState(false),
-    [refund, setRefund] = useState({ bankName: "", accountNumber: "", accountHolderName: "" });
-  useEffect(() => {
-    getDoc(doc(db, "refundAccounts", profile.id)).then((snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        setRefund({ bankName: data.bankName || "", accountNumber: data.accountNumber || "", accountHolderName: data.accountHolderName || "" });
-      }
-    }).catch(() => setMsg("환급 계좌 정보를 불러올 수 없습니다."));
-  }, [profile.id]);
+    [busy, setBusy] = useState(false);
   async function toggle(e) {
     try {
       await updateDoc(doc(db, "users", profile.id), {
@@ -1122,22 +1061,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
     } catch (e) {
       setMsg(friendlyError(e));
     }
-  }
-  async function saveRefundAccount(e) {
-    e.preventDefault();
-    const accountNumber = refund.accountNumber.replace(/\D/g, "");
-    if (!refund.bankName.trim() || !refund.accountHolderName.trim() || accountNumber.length < 6)
-      return setMsg("은행명, 예금주, 올바른 계좌번호를 입력해 주세요.");
-    try {
-      await setDoc(doc(db, "refundAccounts", profile.id), {
-        bankName: refund.bankName.trim(),
-        accountNumber,
-        accountHolderName: refund.accountHolderName.trim(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      setRefund({ ...refund, accountNumber });
-      setMsg("환급 계좌 정보가 저장되었습니다.");
-    } catch (e) { setMsg(friendlyError(e)); }
   }
   async function withdraw(e) {
     e.preventDefault();
@@ -1164,7 +1087,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
       } else {
         throw new Error("이 로그인 방식은 재인증을 지원하지 않습니다.");
       }
-      await deleteDoc(doc(db, "refundAccounts", profile.id));
       await deleteDoc(doc(db, "users", profile.id));
       await deleteUser(user);
       setWithdrawOpen(false);
@@ -1227,14 +1149,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
           onChange={toggle}
         />
       </label>
-      <form className="refund-account" onSubmit={saveRefundAccount}>
-        <h3>환급 계좌 정보</h3>
-        <p>축제 종료 후 잔여 포인트를 계좌이체로 환급할 때 사용합니다. 은행명, 계좌번호와 예금주를 정확히 입력하세요.</p>
-        <label>은행명<input required maxLength="30" value={refund.bankName} onChange={(e) => setRefund({ ...refund, bankName: e.target.value })} placeholder="예: 국민은행" /></label>
-        <label>계좌번호<input required inputMode="numeric" maxLength="30" value={refund.accountNumber} onChange={(e) => setRefund({ ...refund, accountNumber: e.target.value.replace(/[^\d-]/g, "") })} placeholder="숫자와 하이픈만 입력" /></label>
-        <label>예금주명<input required maxLength="20" value={refund.accountHolderName} onChange={(e) => setRefund({ ...refund, accountHolderName: e.target.value })} /></label>
-        <button>환급 계좌 저장</button>
-      </form>
       {(profile.role === "member" || profile.role === "shop") && <RefundRequestForm profile={profile} config={config} />}
       {msg && <p className="notice">{msg}</p>}
       {!isRootAdmin(auth.currentUser) && (
@@ -1435,7 +1349,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
         {user && <button onClick={() => signOut(auth)}>로그아웃</button>}
       </main>
     );
-  if (!user) return page === "signup.html" ? <Signup /> : <Auth />;
+  if (!user) return <Auth />;
   if (!profile)
     return (
       <div className="loading">

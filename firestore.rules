@@ -138,16 +138,6 @@ service cloud.firestore {
          || validPaymentUserUpdate(uid) || validAdjustmentUserUpdate(uid) || validRefundUserUpdate(uid) || validCancellationUserUpdate(uid) || adminUserUpdate(uid);
       allow delete: if signedIn() && uid == request.auth.uid;
     }
-    match /refundAccounts/{uid} {
-      allow create, update: if signedIn() && uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['bankName','accountNumber','accountHolderName','createdAt','updatedAt'])
-        && request.resource.data.bankName is string && request.resource.data.bankName.size() > 0 && request.resource.data.bankName.size() <= 30
-        && request.resource.data.accountNumber is string && request.resource.data.accountNumber.size() >= 6 && request.resource.data.accountNumber.size() <= 30
-        && request.resource.data.accountHolderName is string && request.resource.data.accountHolderName.size() > 0 && request.resource.data.accountHolderName.size() <= 20;
-      allow get: if signedIn() && (uid == request.auth.uid || admin1());
-      allow list: if admin1();
-      allow delete: if admin1() || (signedIn() && uid == request.auth.uid);
-    }
     match /transactions/{id} {
        allow create: if validPaymentTxCreate() || validAdjustmentTxCreate() || validRefundTxCreate() || validCancellationTxCreate();
       allow read: if admin2() || (signedIn() && request.auth.uid in resource.data.participantUids);
@@ -181,8 +171,7 @@ service cloud.firestore {
          && request.resource.data.keys().hasOnly(['requesterUid','requesterName','requesterRole','amount','memo','status','createdAt'])
          && request.resource.data.requesterUid == request.auth.uid && request.resource.data.requesterName == me().data.name && request.resource.data.requesterRole in ['member','shop']
          && request.resource.data.amount is int && request.resource.data.amount > 0 && request.resource.data.amount <= me().data.balance
-         && request.resource.data.memo is string && request.resource.data.memo.size() <= 80 && request.resource.data.status == 'pending'
-         && exists(/databases/$(database)/documents/refundAccounts/$(request.auth.uid));
+         && request.resource.data.memo is string && request.resource.data.memo.size() <= 80 && request.resource.data.status == 'pending';
        allow update: if admin2() && resource.data.status == 'pending'
          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reviewedBy','reviewedAt']) && request.resource.data.status == 'reviewed' && request.resource.data.reviewedBy == request.auth.uid;
        allow update: if admin1() && resource.data.status in ['pending','reviewed'] && request.resource.data.status == 'rejected'
