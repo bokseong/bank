@@ -424,6 +424,7 @@ function About() {
   );
 }
 function HomeDashboard({ profile, config }) {
+  const [scanning, setScanning] = useState(profile.role === "member");
   const destinations = isAdmin1(profile)
     ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "points.html", icon: Banknote, title: "포인트 충전", description: "모든 등급의 계정에 포인트를 충전합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "전체 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
     : profile.role === "admin2"
@@ -438,6 +439,10 @@ function HomeDashboard({ profile, config }) {
         <h1>{profile.name}님, 환영합니다.</h1>
         <p>{config.announcement || "필요한 메뉴를 선택해 축제은행을 이용하세요."}</p>
       </section>
+      {profile.role === "member" && <section className="panel home-qr-scanner">
+        <div className="home-qr-heading"><div><span>QUICK PAY</span><h2>바로 QR 결제</h2><p>부스의 결제 QR을 카메라로 인식하세요.</p></div>{!scanning && <button onClick={() => setScanning(true)}><Camera /> QR 인식 시작</button>}</div>
+        {scanning && <Scanner onClose={() => setScanning(false)} onRead={(qr) => { location.href = `${base}payment.html?orderId=${encodeURIComponent(qr.orderId)}&shopId=${encodeURIComponent(qr.shopId)}`; }} />}
+      </section>}
       <section className="home-links" aria-label="주요 메뉴">
         {destinations.map(({ href, icon: Icon, title, description }) => (
           <a className="home-link-card" href={`${base}${href}`} key={href}>
@@ -802,6 +807,11 @@ function Pay({ profile, config }) {
       setBusy(false);
     }
   }
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const orderId = params.get("orderId"), shopId = params.get("shopId");
+    if (orderId && shopId) void read({ orderId, shopId });
+  }, []);
   async function pay(e) {
     e.preventDefault();
     if (!invoice || !config.paymentsEnabled) return;
