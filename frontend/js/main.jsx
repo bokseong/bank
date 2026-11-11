@@ -776,7 +776,6 @@ function Scanner({ onRead, onClose }) {
         </button>
       </div>
       <video ref={video} muted playsInline />
-      <div className="scan-frame" />
       <p>{error || "QR 코드가 사각형 안에 들어오게 비춰 주세요."}</p>
     </div>
   );
