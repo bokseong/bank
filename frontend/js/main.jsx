@@ -336,7 +336,6 @@ function Auth() {
         </form>
         <ProviderButtons busy={busy} onProvider={oauth} mode="로그인" />
         <small className="auth-help">
-          계정 발급 또는 비밀번호 재설정이 필요하면 축제은행 관리자에게 문의하세요.
         </small>
       </section>
     </main>
