@@ -9,7 +9,7 @@ service cloud.firestore {
     function roleIs(values){ return signedIn() && me().data.status == 'active' && me().data.role in values; }
     function admin1(){ return rootAdmin() || roleIs(['admin1', 'admin']); }
     function admin2(){ return admin1() || roleIs(['admin2']); }
-    function depositChecker(){ return admin1() || roleIs(['deposit_checker']); }
+    function depositChecker(){ return roleIs(['deposit_checker']); }
     function canAdjustTarget(role){
       return (admin1() && role in ['member','student','shop','booth','admin2','admin1','admin'])
         || (roleIs(['admin2']) && role in ['member','student','shop','booth']);
@@ -159,12 +159,12 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /topUpOrders/{id} {
-      allow get: if depositChecker() || admin2() || (signedIn() && resource.data.uid == request.auth.uid);
-      allow list: if depositChecker() || admin2() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow get: if depositChecker() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow list: if depositChecker() || (signedIn() && resource.data.uid == request.auth.uid);
       allow create, update, delete: if false;
     }
     match /topupAmountLocks/{id} { allow read, write: if false; }
-    match /depositEvents/{id} { allow read: if depositChecker() || admin2(); allow write: if false; }
+    match /depositEvents/{id} { allow read: if depositChecker(); allow write: if false; }
     match /collectorDevices/{id} { allow read: if admin1(); allow write: if false; }
     match /auditLogs/{id} { allow read: if admin1(); allow write: if false; }
     match /refundRequests/{id} {

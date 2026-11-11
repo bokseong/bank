@@ -93,7 +93,7 @@ export const ingestDepositNotification = onCall({ region: REGION, enforceAppChec
 });
 
 export const listPendingTopUpOrders = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
-  await requireActiveRole(request, ["deposit_checker", "admin1"]);
+  await requireActiveRole(request, ["deposit_checker"]);
   const pending = await db.collection("topUpOrders").where("status", "==", "pending").limit(100).get();
   const users = await Promise.all(pending.docs.map((item) => db.doc(`users/${item.data().uid}`).get()));
   const orders = pending.docs.map((item, index) => {
@@ -104,7 +104,7 @@ export const listPendingTopUpOrders = onCall({ region: REGION, enforceAppCheck: 
 });
 
 export const confirmTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
-  const checker = await requireActiveRole(request, ["deposit_checker", "admin1"]);
+  const checker = await requireActiveRole(request, ["deposit_checker"]);
   const orderId = String(request.data?.orderId || "").trim();
   const confirmedAmount = positiveInteger(request.data?.confirmedAmount, "확인 금액");
   if (!orderId || orderId.length > 160) throw new HttpsError("invalid-argument", "충전 요청을 찾을 수 없습니다.");

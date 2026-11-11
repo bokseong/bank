@@ -1460,7 +1460,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "topup.html") content = profile.role === "member" ? <AutoTopUp profile={profile} config={config} /> : <AccessDenied />;
-  else if (page === "deposit.html") content = isDepositChecker(profile) || isAdmin1(profile) ? <DepositReview /> : <AccessDenied />;
+  else if (page === "deposit.html") content = isDepositChecker(profile) ? <DepositReview /> : <AccessDenied />;
   else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "payment.html" && profile.role !== "shop" && !isDepositChecker(profile))
     content = <Pay profile={profile} config={config} />;
@@ -1498,7 +1498,6 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
             ["index.html", Building2, "홈"],
             ["admin.html", ShieldCheck, "관리"],
             ["points.html", Banknote, "충전"],
-            ["deposit.html", ClipboardCheck, "입금 확인"],
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
           ];
