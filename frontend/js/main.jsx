@@ -34,6 +34,7 @@ import { push, ref, serverTimestamp as rtdbServerTimestamp } from "firebase/data
 import { httpsCallable } from "firebase/functions";
 import { BrowserQRCodeReader } from "@zxing/browser";
 import {
+  ArrowLeft,
   Banknote,
   Building2,
   Camera,
@@ -1466,6 +1467,13 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
           ];
+  const goBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.assign(`${base}index.html`);
+  };
   return (
     <div className="shell">
       <header>
@@ -1505,6 +1513,10 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
               {label}
             </a>
           ))}
+          <button type="button" className="nav-back" onClick={goBack} aria-label="이전 페이지로 이동">
+            <ArrowLeft />
+            뒤로가기
+          </button>
         </nav>
       )}
       <main className="content">{content}</main>
