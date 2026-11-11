@@ -14,7 +14,7 @@ service cloud.firestore {
         || (roleIs(['admin2']) && role in ['member','student','shop','booth']);
     }
     function shop(){ return roleIs(['shop', 'booth']); }
-    function payer(){ return roleIs(['member', 'student']); }
+    function payer(){ return roleIs(['member', 'student', 'admin1', 'admin', 'admin2']); }
     function active(){ return signedIn() && me().data.status == 'active' && config().systemOpen == true; }
     function payTx(id){ return getAfter(/databases/$(database)/documents/transactions/$(id)); }
     function orderAfter(id){ return getAfter(/databases/$(database)/documents/orders/$(id)); }

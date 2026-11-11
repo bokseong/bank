@@ -424,7 +424,7 @@ function About() {
   );
 }
 function HomeDashboard({ profile, config }) {
-  const [scanning, setScanning] = useState(profile.role === "member");
+  const [scanning, setScanning] = useState(profile.role !== "shop");
   const destinations = isAdmin1(profile)
     ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "points.html", icon: Banknote, title: "포인트 충전", description: "모든 등급의 계정에 포인트를 충전합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "전체 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
     : profile.role === "admin2"
@@ -439,7 +439,7 @@ function HomeDashboard({ profile, config }) {
         <h1>{profile.name}님, 환영합니다.</h1>
         <p>{config.announcement || "필요한 메뉴를 선택해 축제은행을 이용하세요."}</p>
       </section>
-      {profile.role === "member" && <section className="panel home-qr-scanner">
+      {profile.role !== "shop" && <section className="panel home-qr-scanner">
         <div className="home-qr-heading"><div><span>QUICK PAY</span><h2>바로 QR 결제</h2><p>부스의 결제 QR을 카메라로 인식하세요.</p></div>{!scanning && <button onClick={() => setScanning(true)}><Camera /> QR 인식 시작</button>}</div>
         {scanning && <Scanner onClose={() => setScanning(false)} onRead={(qr) => { location.href = `${base}payment.html?orderId=${encodeURIComponent(qr.orderId)}&shopId=${encodeURIComponent(qr.shopId)}`; }} />}
       </section>}
@@ -786,6 +786,7 @@ function Pay({ profile, config }) {
     [msg, setMsg] = useState("");
   const needPassword =
     config.forcePaymentPassword || profile.requirePaymentPassword !== false;
+  const passwordProvider = auth.currentUser?.providerData.some((provider) => provider.providerId === "password");
   async function read(q) {
     setScanning(false);
     setBusy(true);
@@ -820,11 +821,14 @@ function Pay({ profile, config }) {
     setMsg("");
     try {
       if (needPassword) {
-        if (!password) throw new Error("비밀번호를 입력해 주세요.");
-        await reauthenticateWithCredential(
-          auth.currentUser,
-          EmailAuthProvider.credential(auth.currentUser.email, password),
-        );
+        if (passwordProvider) {
+          if (!password) throw new Error("비밀번호를 입력해 주세요.");
+          await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(auth.currentUser.email, password));
+        } else if (auth.currentUser.providerData.some((provider) => provider.providerId === "google.com")) {
+          await reauthenticateWithPopup(auth.currentUser, googleProvider);
+        } else if (auth.currentUser.providerData.some((provider) => provider.providerId === "github.com")) {
+          await reauthenticateWithPopup(auth.currentUser, githubProvider);
+        } else throw new Error("다시 로그인한 뒤 결제를 시도해 주세요.");
         await auth.currentUser.getIdToken(true);
       }
       const payerRef = doc(db, "users", profile.id), shopRef = doc(db, "users", invoice.shopUid), orderRef = doc(db, "orders", invoice.id);
@@ -876,7 +880,7 @@ function Pay({ profile, config }) {
                 <strong>{won(invoice.amount)}</strong>
               </div>
               <p>상품: {invoice.productName} {invoice.quantity}개</p>
-              {needPassword && (
+              {needPassword && passwordProvider && (
                 <label>
                   결제 비밀번호
                   <input
@@ -889,6 +893,7 @@ function Pay({ profile, config }) {
                   />
                 </label>
               )}
+              {needPassword && !passwordProvider && <p className="hint">결제 버튼을 누르면 로그인 제공업체로 본인 확인을 진행합니다.</p>}
               <button disabled={busy}>
                 {busy ? "결제 처리 중…" : `${won(invoice.amount)} 결제`}
               </button>
@@ -1485,14 +1490,14 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
   let content;
   if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
   else if (page === "history.html")
-    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role === "member"} canCancel={profile.role === "shop"} />;
+    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop"} canCancel={profile.role === "shop"} />;
   else if (page === "settings.html")
     content = <UserSettings profile={profile} config={config} darkMode={darkMode} setDarkMode={setDarkMode} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "topup.html") content = profile.role === "member" ? <AutoTopUp profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
-  else if (page === "payment.html" && profile.role === "member")
+  else if (page === "payment.html" && profile.role !== "shop")
     content = <Pay profile={profile} config={config} />;
   else content = <AccessDenied />;
   const tabs =
