@@ -1513,13 +1513,12 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
               {label}
             </a>
           ))}
-          <button type="button" className="nav-back" onClick={goBack} aria-label="이전 페이지로 이동">
-            <ArrowLeft />
-            뒤로가기
-          </button>
         </nav>
       )}
       <main className="content">{content}</main>
+      <button type="button" className="floating-back" onClick={goBack} aria-label="이전 페이지로 이동" title="뒤로가기">
+        <ArrowLeft />
+      </button>
     </div>
   );
 }
