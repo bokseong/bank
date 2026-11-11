@@ -13,8 +13,17 @@ const ORDER_TTL_MS = 10 * 60 * 1000;
 const LOCK_HOLD_MS = 4 * 60 * 60 * 1000;
 const MAX_SUFFIX = 99;
 const MAX_NOTIFICATION_AGE_MS = 4 * 60 * 60 * 1000;
+const MANUAL_REVIEW_TTL_MS = 24 * 60 * 60 * 1000;
 
 function requireSignedIn(request) { if (!request.auth) throw new HttpsError("unauthenticated", "로그인이 필요합니다."); }
+async function requireActiveRole(request, acceptedRoles) {
+  requireSignedIn(request);
+  const profile = await db.doc(`users/${request.auth.uid}`).get();
+  if (!profile.exists || profile.data().status !== "active" || !acceptedRoles.includes(profile.data().role)) {
+    throw new HttpsError("permission-denied", "이 작업을 수행할 권한이 없습니다.");
+  }
+  return profile.data();
+}
 function positiveInteger(value, field) { const number = Number(value); if (!Number.isSafeInteger(number) || number <= 0) throw new HttpsError("invalid-argument", `${field}은(는) 양의 정수여야 합니다.`); return number; }
 function safeSenderName(value) { return String(value || "").replace(/[\r\n]/g, " ").trim().slice(0, 40); }
 function eventHash(event) { return crypto.createHash("sha256").update(`${event.deviceId}|${event.notificationKey}|${event.receivedAt}|${event.amount}`).digest("hex"); }
@@ -52,7 +61,7 @@ export const createTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, 
 });
 
 export const ingestDepositNotification = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
-  requireSignedIn(request);
+  await requireActiveRole(request, ["deposit_checker"]);
   if (request.auth.token.collector !== true) throw new HttpsError("permission-denied", "등록된 입금 수집기만 사용할 수 있습니다.");
   const raw = request.data?.event || {}, amount = positiveInteger(raw.amount, "입금 금액"), receivedAt = positiveInteger(raw.receivedAt, "수신 시각");
   const deviceId = String(raw.deviceId || "").trim(), notificationKey = String(raw.notificationKey || "").trim().slice(0, 200), sourcePackage = String(raw.sourcePackage || "").trim().slice(0, 160), nonce = String(raw.nonce || "").trim().slice(0, 120), signature = String(raw.signature || "");
@@ -81,4 +90,45 @@ export const ingestDepositNotification = onCall({ region: REGION, enforceAppChec
   await rtdb.ref(`collectorLogs/deposits/${id}`).set({ ...result, amount, deviceId, receivedAt, at: Date.now() });
   logger.info("deposit notification processed", { id, ...result, amount, deviceId });
   return { eventId: id, ...result };
+});
+
+export const listPendingTopUpOrders = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  await requireActiveRole(request, ["deposit_checker", "admin1"]);
+  const pending = await db.collection("topUpOrders").where("status", "==", "pending").limit(100).get();
+  const users = await Promise.all(pending.docs.map((item) => db.doc(`users/${item.data().uid}`).get()));
+  const orders = pending.docs.map((item, index) => {
+    const data = item.data(), user = users[index].data() || {};
+    return { id: item.id, name: String(user.name || "알 수 없음"), studentId: String(user.studentId || ""), requestedAmount: Number(data.requestedAmount || 0), assignedAmount: Number(data.assignedAmount || 0), createdAt: data.createdAt?.toMillis?.() || null, expiresAt: data.expiresAt?.toMillis?.() || null };
+  }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return { orders };
+});
+
+export const confirmTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  const checker = await requireActiveRole(request, ["deposit_checker", "admin1"]);
+  const orderId = String(request.data?.orderId || "").trim();
+  const confirmedAmount = positiveInteger(request.data?.confirmedAmount, "확인 금액");
+  if (!orderId || orderId.length > 160) throw new HttpsError("invalid-argument", "충전 요청을 찾을 수 없습니다.");
+  const orderRef = db.doc(`topUpOrders/${orderId}`), eventRef = db.doc(`depositEvents/manual-${orderId}`), txRef = db.collection("transactions").doc();
+  const result = await db.runTransaction(async (tx) => {
+    const [orderSnap, eventSnap] = await Promise.all([tx.get(orderRef), tx.get(eventRef)]);
+    if (eventSnap.exists) return { state: "already_confirmed", transactionId: eventSnap.data().transactionId || null };
+    if (!orderSnap.exists) throw new HttpsError("not-found", "충전 요청을 찾을 수 없습니다.");
+    const order = orderSnap.data();
+    if (order.status !== "pending") return { state: "already_confirmed", transactionId: order.transactionId || null };
+    if (Number(order.assignedAmount) !== confirmedAmount) throw new HttpsError("invalid-argument", "은행 거래내역의 입금 금액이 발급 금액과 다릅니다.");
+    const createdAt = order.createdAt?.toMillis?.() || 0;
+    if (!createdAt || Date.now() - createdAt > MANUAL_REVIEW_TTL_MS) throw new HttpsError("failed-precondition", "24시간이 지난 충전 요청은 1급 관리자에게 문의해 주세요.");
+    const userRef = db.doc(`users/${order.uid}`), userSnap = await tx.get(userRef);
+    if (!userSnap.exists || userSnap.data().status !== "active") throw new HttpsError("failed-precondition", "충전 대상 계정을 사용할 수 없습니다.");
+    const lockRef = db.doc(`topupAmountLocks/${confirmedAmount}`);
+    tx.update(userRef, { balance: Number(userSnap.data().balance || 0) + confirmedAmount, lastTransactionId: txRef.id, updatedAt: FieldValue.serverTimestamp() });
+    tx.update(orderRef, { status: "paid", paidAt: FieldValue.serverTimestamp(), depositEventId: eventRef.id, transactionId: txRef.id, confirmedBy: request.auth.uid, confirmationMethod: "manual" });
+    tx.set(lockRef, { state: "paid", orderId, assignedAmount: confirmedAmount, depositEventId: eventRef.id, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.set(txRef, { type: "topup", uid: order.uid, amount: confirmedAmount, memo: "입금 확인 담당자 수동 대조", participantUids: [order.uid], processedBy: request.auth.uid, topUpOrderId: orderId, depositEventId: eventRef.id, createdAt: FieldValue.serverTimestamp() });
+    tx.set(eventRef, { state: "manual_paid", orderId, transactionId: txRef.id, amount: confirmedAmount, confirmedBy: request.auth.uid, checkerName: String(checker.name || "").slice(0, 40), createdAt: FieldValue.serverTimestamp() });
+    return { state: "paid", transactionId: txRef.id, uid: order.uid };
+  });
+  await rtdb.ref(`collectorLogs/manualConfirmations/${orderId}`).set({ ...result, checkerUid: request.auth.uid, amount: confirmedAmount, at: Date.now() });
+  logger.info("topup manually confirmed", { orderId, ...result, checkerUid: request.auth.uid, amount: confirmedAmount });
+  return result;
 });

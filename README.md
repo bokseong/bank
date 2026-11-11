@@ -9,6 +9,7 @@
 - 학생: 이메일·Google·GitHub 로그인/회원가입, 잔액 확인, 카메라 QR 결제, 충전·환불 신청, 거래 내역, 개인 설정
 - 부스: 금액·상품명을 포함한 결제 QR 생성, 실시간 누적 매출, 거래 내역
 - 관리자: 운영 시간, 전체 공지, 결제·충전·환불 사용 여부, 결제 한도, 신청 승인, 계정·거래 현황
+- 입금 확인 담당자: 자동 수집 실패·예외 충전 건을 은행 거래내역과 대조해 전용 화면에서 확정
 - 보안: Firebase Authentication 재인증, 역할 기반 Firestore Rules, 원자적 결제, 거래 원장 수정·삭제 차단
 - 반응형 UI: 휴대전화·태블릿·PC 지원
 
@@ -24,6 +25,7 @@
 - `frontend/admin.html`: 1급 관리자용 계정 권한·운영 관리 페이지
 - `frontend/points.html`: 2급 관리자 이상 포인트 조절 페이지
 - `frontend/topup.html`: 학생용 고유 금액 자동 계좌 충전 신청 페이지
+- `frontend/deposit.html`: 입금 확인 담당자 전용 보류 충전 확인 페이지
 - `functions/`: Blaze Cloud Functions — 고유 입금 금액 발급·수집기 알림 검증·원자적 포인트 지급
 - `collector-android/`: 학생회 수신 기기에만 설치하는 Android 은행 알림 수집기
 - `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
@@ -41,7 +43,7 @@
 2. **Authentication → Sign-in method**에서 `Email/Password`, `Google`, `GitHub`를 활성화하고 **Settings → Authorized domains**에 `bokseong.github.io`를 추가합니다.
 3. **Firestore Database**를 Production mode로 생성합니다. 위치는 한 번 정하면 변경할 수 없으므로 학교와 가까운 위치를 선택합니다.
 4. **Project settings → Service accounts → Generate new private key**에서 관리자 계정 준비용 JSON을 내려받습니다. 저장소 안에 넣거나 Git에 올리지 마세요.
-5. Node.js 20 이상과 Firebase CLI를 준비합니다.
+5. Node.js 22 이상과 Firebase CLI를 준비합니다.
 
 ## 2. 설치 및 관리자·부스 계정 준비
 
@@ -64,7 +66,7 @@ Remove-Item Env:\GOOGLE_APPLICATION_CREDENTIALS
 
 `users.json`은 `.gitignore`에 의해 저장소에 올라가지 않습니다. 계정 준비가 끝나면 안전하게 별도 보관하거나 삭제하세요. 최초 로그인 후 임시 비밀번호를 변경하는 운영 절차를 권장합니다.
 
-`provision` 명령은 `admin1`, `admin2`, `shop`, `member` 계정과 `settings/config` 기본 운영 설정을 생성합니다. 신규 가입자는 `member`로 신청하며 1급 관리자가 계정 권한을 변경할 수 있습니다. 상점은 상품을 등록해 5분간 한 번만 사용할 수 있는 주문 QR을 만들고, 결제 시 주문서와 잔액이 함께 검증됩니다.
+`provision` 명령은 `admin1`, `admin2`, `shop`, `member`, `deposit_checker` 계정과 `settings/config` 기본 운영 설정을 생성합니다. 신규 가입자는 `member`로 신청하며 1급 관리자가 계정 권한을 변경할 수 있습니다. `deposit_checker`는 입금 대조만 할 수 있는 전용 역할이며 결제·포인트 조절·계정 관리 권한은 없습니다. 상점은 상품을 등록해 5분간 한 번만 사용할 수 있는 주문 QR을 만들고, 결제 시 주문서와 잔액이 함께 검증됩니다.
 
 ## 3. 테스트 및 GitHub Pages 배포
 
@@ -95,17 +97,17 @@ npm run deploy:firestore
 이 기능은 PG·은행 API 없이 학생회 운영 계좌의 **은행 앱 입금 알림**을 전용 Android 기기에서 읽어 자동 대조합니다. 학생은 입금자명을 바꾸지 않고, 사이트가 안내하는 정확한 고유 금액만 송금합니다. 실제 입금액과 포인트가 같도록 고유 금액 전체를 포인트로 지급합니다.
 
 1. Firebase 프로젝트가 Blaze 요금제인지 확인합니다.
-2. `functions`에서 의존성을 설치하고 Functions를 배포합니다.
+2. 이 저장소에는 이미 `firebase.json`이 있으므로 `firebase init`을 다시 실행하지 마세요. Functions 의존성을 설치하고 Rules·RTDB Rules와 함께 배포합니다.
 
 ```powershell
 Set-Location .\functions
 npm install
 Set-Location ..
-npx firebase-tools deploy --only functions,firestore:rules,firestore:indexes
+npx firebase-tools deploy --only functions,firestore:rules,firestore:indexes,database
 ```
 
 3. `collector-android\app\google-services.json`에 Firebase Console에서 내려받은 Android 앱 설정 파일을 넣습니다. 이 파일은 저장소에 올리지 않습니다.
-4. Android 프로젝트를 열어 전용 운영 기기에 설치합니다. 앱에 수집기 전용 Firebase 계정으로 로그인하고, 실제 은행 앱의 package name만 등록한 뒤 Android 설정에서 **알림 접근 권한**을 허용합니다.
+4. Android 프로젝트를 열어 전용 운영 기기에 설치합니다. 앱에는 1급 관리자가 `입금 확인 담당자`로 지정한 전용 Firebase 계정으로 로그인하고, 실제 은행 앱의 package name만 등록한 뒤 Android 설정에서 **알림 접근 권한**을 허용합니다.
 5. 앱에 표시된 `기기 ID`와 `공개키(SPKI)`를 복사하고, Service Account 환경을 설정한 PowerShell에서 수집기를 등록합니다.
 
 ```powershell
@@ -114,6 +116,8 @@ node .\scripts\register-collector.mjs 'collector@example.com' 'ANDROID_ID' 'SPKI
 ```
 
 6. 수집기 앱에서 로그아웃 후 재로그인해 권한 토큰을 갱신합니다. 관리자 페이지에서 자동 계좌 충전과 계좌 안내를 설정한 뒤, 실제 은행 앱 알림으로 최소 20회 이상 소액 입금 시험을 합니다.
+
+자동 확인이 실패하거나 은행 알림을 파싱하지 못한 경우, `입금 확인 담당자`가 **입금 확인** 메뉴에서 은행 거래내역의 금액을 발급 금액과 대조한 후 처리합니다. 이 확정은 되돌릴 수 없고 Functions·Firestore·RTDB 감사 로그에 남습니다.
 
 은행별 알림 문구는 다르므로 `collector-android/.../BankNotificationListener.kt`의 `parseAmount`, `parseSender`는 실제 수신된 알림 형식으로 검증·조정해야 합니다. 알림에 금액이 없거나 파싱하지 못한 건은 자동 충전되지 않습니다.
 

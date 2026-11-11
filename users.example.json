@@ -1,5 +1,6 @@
 [
   {"email":"admin1@example.com","password":"CHANGE_ME_123!","name":"1급 관리자","role":"admin1"},
   {"email":"admin2@example.com","password":"CHANGE_ME_123!","name":"2급 관리자","role":"admin2"},
+  {"email":"checker@example.com","password":"CHANGE_ME_123!","name":"입금 확인 담당자","role":"deposit_checker"},
   {"email":"shop1@example.com","password":"CHANGE_ME_123!","name":"2학년 1반 상점","role":"shop"}
 ]

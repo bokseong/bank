@@ -10,6 +10,10 @@ if (!email || !deviceId || !publicKeySpki || !packageList) {
 initializeApp({ credential: applicationDefault(), projectId: "hs-bokseong" });
 const auth = getAuth(), db = getFirestore();
 const user = await auth.getUserByEmail(email);
+const profile = await db.doc(`users/${user.uid}`).get();
+if (!profile.exists || profile.data().role !== 'deposit_checker' || profile.data().status !== 'active') {
+  throw new Error('수집기 계정은 활성 상태의 deposit_checker(입금 확인 담당자) 역할이어야 합니다.');
+}
 await auth.setCustomUserClaims(user.uid, { ...(user.customClaims || {}), collector: true });
 await db.doc(`collectorDevices/${deviceId}`).set({
   uid: user.uid,

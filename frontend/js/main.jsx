@@ -38,6 +38,7 @@ import {
   Banknote,
   Building2,
   Camera,
+  ClipboardCheck,
   History,
   LogOut,
   QrCode,
@@ -58,6 +59,7 @@ const roles = {
     shop: "상점",
     admin1: "1급 관리자",
     admin2: "2급 관리자",
+    deposit_checker: "입금 확인 담당자",
   },
   types = { payment: "결제", topup: "충전", refund: "환불", cancellation: "결제 취소", adjustment: "포인트 조절" },
   legacyRoles = { student: "member", booth: "shop", admin: "admin1" };
@@ -71,6 +73,7 @@ const isRootAdmin = (user) =>
 const normalizeRole = (role) => legacyRoles[role] || role || "member";
 const isAdmin1 = (profile) => profile?.role === "admin1";
 const isAdmin2 = (profile) => profile?.role === "admin2" || isAdmin1(profile);
+const isDepositChecker = (profile) => profile?.role === "deposit_checker";
 const defaultConfig = {
   festivalName: "복성고 축제은행",
   announcement: "",
@@ -423,11 +426,14 @@ function About() {
   );
 }
 function HomeDashboard({ profile, config }) {
-  const [scanning, setScanning] = useState(profile.role !== "shop");
+  const canPay = profile.role !== "shop" && !isDepositChecker(profile);
+  const [scanning, setScanning] = useState(canPay);
   const destinations = isAdmin1(profile)
     ? [{ href: "admin.html", icon: ShieldCheck, title: "관리자 페이지", description: "계정 권한, 가입 승인과 운영 설정을 관리합니다." }, { href: "points.html", icon: Banknote, title: "포인트 충전", description: "모든 등급의 계정에 포인트를 충전합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "전체 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
     : profile.role === "admin2"
       ? [{ href: "points.html", icon: Banknote, title: "포인트 조절", description: "현금 수납 확인 후 포인트를 충전하고 환불을 검토합니다." }, { href: "history.html", icon: History, title: "거래 내역", description: "포인트 조절과 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
+      : isDepositChecker(profile)
+        ? [{ href: "deposit.html", icon: ClipboardCheck, title: "입금 확인", description: "은행 거래내역을 대조하여 보류 충전을 확정합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
       : profile.role === "shop"
         ? [{ href: "booth.html", icon: QrCode, title: "상점 관리", description: "상품·가격을 등록하고 주문 QR을 만듭니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "상점 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
         : [{ href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 임시 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "내 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }];
@@ -438,7 +444,7 @@ function HomeDashboard({ profile, config }) {
         <h1>{profile.name}님, 환영합니다.</h1>
         <p>{config.announcement || "필요한 메뉴를 선택해 축제은행을 이용하세요."}</p>
       </section>
-      {profile.role !== "shop" && <section className="panel home-qr-scanner">
+      {canPay && <section className="panel home-qr-scanner">
         <div className="home-qr-heading"><div><span>QUICK PAY</span><h2>바로 QR 결제</h2><p>부스의 결제 QR을 카메라로 인식하세요.</p></div>{!scanning && <button onClick={() => setScanning(true)}><Camera /> QR 인식 시작</button>}</div>
         {scanning && <Scanner onClose={() => setScanning(false)} onRead={(qr) => { location.href = `${base}payment.html?orderId=${encodeURIComponent(qr.orderId)}&shopId=${encodeURIComponent(qr.shopId)}`; }} />}
       </section>}
@@ -1050,6 +1056,27 @@ function AutoTopUp({ profile, config }) {
     {msg && <p className="notice">{msg}</p>}
   </>;
 }
+function DepositReview() {
+  const [orders, setOrders] = useState([]), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
+  const load = async () => {
+    setBusy(true); setMsg("");
+    try { const call = httpsCallable(functions, "listPendingTopUpOrders", { limitedUseAppCheckTokens: true }); const result = await call(); setOrders(result.data?.orders || []); }
+    catch (error) { setMsg(friendlyError(error)); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  async function confirmOrder(order) {
+    if (!window.confirm(`${order.name} (${order.studentId || "학번 없음"})의 ${won(order.assignedAmount)} 입금을 은행 거래내역에서 직접 확인했습니까?\n확정 후에는 포인트가 즉시 지급됩니다.`)) return;
+    setBusy(true); setMsg("");
+    try { const call = httpsCallable(functions, "confirmTopUpOrder", { limitedUseAppCheckTokens: true }); const result = await call({ orderId: order.id, confirmedAmount: order.assignedAmount }); setMsg(result.data?.state === "already_confirmed" ? "이미 처리된 충전 요청입니다." : `${order.name} 계정에 ${won(order.assignedAmount)}을 지급했습니다.`); await load(); }
+    catch (error) { setMsg(friendlyError(error)); setBusy(false); }
+  }
+  return <section className="panel deposit-review">
+    <div className="deposit-review-heading"><div><h2>입금 확인</h2><p>은행 거래내역의 입금 금액과 아래 고유 금액이 정확히 일치할 때만 확정하세요. 확정 처리는 감사 로그에 남으며 되돌릴 수 없습니다.</p></div><button className="secondary" disabled={busy} onClick={load}><RefreshCw /> 새로고침</button></div>
+    {orders.length === 0 && !busy ? <p className="empty">확인할 보류 충전 요청이 없습니다.</p> : <div className="deposit-order-list">{orders.map((order) => <article className="deposit-order" key={order.id}><div><strong>{order.name}</strong><span>{order.studentId || "학번 미등록"}</span><small>요청 {won(order.requestedAmount)} · 발급 {won(order.assignedAmount)}</small><small>요청 시각 {order.createdAt ? new Date(order.createdAt).toLocaleString("ko-KR") : "확인 중"}</small></div><button disabled={busy} onClick={() => confirmOrder(order)}>입금 확인·지급</button></article>)}</div>}
+    {busy && <p className="hint">충전 요청을 확인하는 중입니다…</p>}{msg && <p className="notice">{msg}</p>}
+  </section>;
+}
 function PointControl({ profile, config }) {
   const [users, setUsers] = useState([]),
     [form, setForm] = useState({ uid: "", amount: "", memo: "" }),
@@ -1363,7 +1390,7 @@ function Admin({ config }) {
                   <td>{u.studentId || "-"}</td>
                   <td>{roles[normalizeRole(u.role)] || u.role}</td>
                   <td>{won(u.balance)}</td>
-                  <td><select aria-label={`${u.name} 변경할 권한`} value={normalizeRole(u.role)} onChange={(e) => changeRole(u, e.target.value)}><option value="member">일반회원</option><option value="shop">상점</option><option value="admin2">2급 관리자</option><option value="admin1">1급 관리자</option></select></td>
+                  <td><select aria-label={`${u.name} 변경할 권한`} value={normalizeRole(u.role)} onChange={(e) => changeRole(u, e.target.value)}><option value="member">일반회원</option><option value="shop">상점</option><option value="admin2">2급 관리자</option><option value="deposit_checker">입금 확인 담당자</option><option value="admin1">1급 관리자</option></select></td>
                   <td><span className={`account-status ${u.status === "suspended" ? "suspended" : "active"}`}>{u.status === "suspended" ? "정지" : "활성"}</span></td>
                   <td><button className={u.status === "suspended" ? "secondary" : "danger"} onClick={() => changeStatus(u)}>{u.status === "suspended" ? "정지 해제" : "계정 정지"}</button></td>
                 </tr>
@@ -1427,14 +1454,15 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
   let content;
   if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
   else if (page === "history.html")
-    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop"} canCancel={profile.role === "shop"} />;
+    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop" && !isDepositChecker(profile)} canCancel={profile.role === "shop"} />;
   else if (page === "settings.html")
     content = <UserSettings profile={profile} config={config} darkMode={darkMode} setDarkMode={setDarkMode} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "topup.html") content = profile.role === "member" ? <AutoTopUp profile={profile} config={config} /> : <AccessDenied />;
+  else if (page === "deposit.html") content = isDepositChecker(profile) || isAdmin1(profile) ? <DepositReview /> : <AccessDenied />;
   else if (page === "booth.html") content = profile.role === "shop" ? <Shop profile={profile} config={config} /> : <AccessDenied />;
-  else if (page === "payment.html" && profile.role !== "shop")
+  else if (page === "payment.html" && profile.role !== "shop" && !isDepositChecker(profile))
     content = <Pay profile={profile} config={config} />;
   else content = <AccessDenied />;
   const tabs =
@@ -1460,10 +1488,17 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
           ]
+          : isDepositChecker(profile)
+            ? [
+              ["index.html", Building2, "홈"],
+              ["deposit.html", ClipboardCheck, "입금 확인"],
+              ["settings.html", Settings, "내 정보"],
+            ]
           : [
             ["index.html", Building2, "홈"],
             ["admin.html", ShieldCheck, "관리"],
             ["points.html", Banknote, "충전"],
+            ["deposit.html", ClipboardCheck, "입금 확인"],
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
           ];
