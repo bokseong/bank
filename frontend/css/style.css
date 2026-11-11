@@ -29,3 +29,31 @@ html.dark-theme{color:#ededed;background:#101010}html.dark-theme body{background
 @media(max-width:1024px){.shell:has(nav) .content{margin:0;padding-bottom:108px}nav,.shell:has(.announcement) nav{z-index:40;top:auto;bottom:0;left:0;width:100%;height:72px;min-height:72px;padding:8px;background:#fff;border-top:1px solid #e1e6e2;display:flex;flex-direction:row;gap:4px;overflow-x:auto}nav a{flex:1;min-width:72px;flex-direction:column;justify-content:center;gap:3px;color:#69756f;padding:5px 8px;font-size:11px;white-space:nowrap;margin-top:0}nav a.active{color:#1c6848;background:#edf5f0}.shell footer,.site-footer{padding-bottom:98px}.floating-back{left:16px;bottom:88px;width:44px;height:44px}html.dark-theme nav{background:#151515}html.dark-theme nav a.active{background:#3c3c3c;color:#fff}}
 @media(max-width:640px){.home-qr-heading{align-items:flex-start;flex-direction:column}.home-qr-heading button{width:100%;justify-content:center}.home-qr-scanner{padding:16px}.home-qr-scanner .scanner{margin-left:-2px;margin-right:-2px}}
 @media(max-width:640px){.deposit-review-heading,.deposit-order{align-items:stretch;flex-direction:column}.deposit-review-heading button,.deposit-order button{width:100%;justify-content:center}}
+
+/* 로그인 제출 버튼은 화면 폭과 관계없이 한 줄로 표시한다. */
+.auth-card form > button{white-space:nowrap}
+
+/* 홈은 메뉴·QR 인식기를 빠르게 확인할 수 있도록 밝은 대비로 고정한다. */
+.home-shell{background:#f5f8fc;min-height:100vh}
+.home-shell header{background:#fff;border-bottom-color:#d9e1ec;box-shadow:0 2px 12px #27415d0d}
+.home-shell nav{background:#fff;border-right:1px solid #d9e1ec;box-shadow:4px 0 16px #27415d0a}
+.home-shell nav a{color:#415064}
+.home-shell nav a.active{background:#e8f1ff;color:#174f92}
+.home-shell .content{background:linear-gradient(180deg,#fbfdff 0%,#f5f8fc 100%)}
+.home-shell .home-welcome{background:linear-gradient(135deg,#e5f0ff,#f7fbff);border:1px solid #bfd6f3;color:#1c3552;box-shadow:0 12px 28px #335c8f14}
+.home-shell .home-welcome>span{color:#2866a8}
+.home-shell .home-welcome p{color:#4a637f}
+.home-shell .panel,.home-shell .home-link-card{background:#fff;border-color:#d9e3ef;box-shadow:0 8px 24px #27415d0c}
+.home-shell .home-link-card{color:#223850}
+.home-shell .home-link-card:hover{border-color:#8eb6e6;box-shadow:0 14px 30px #27415d1c}
+.home-shell .home-link-card p,.home-shell .home-qr-heading p{color:#5d6e82}
+.home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
+.home-shell .home-link-action,.home-shell .home-qr-heading span{color:#175fa8}
+html.dark-theme .home-shell{background:#f5f8fc;color:#223850}
+html.dark-theme .home-shell header,html.dark-theme .home-shell nav,html.dark-theme .home-shell .panel,html.dark-theme .home-shell .home-link-card{background:#fff;color:#223850;border-color:#d9e3ef}
+html.dark-theme .home-shell nav a{color:#415064}
+html.dark-theme .home-shell nav a.active{background:#e8f1ff;color:#174f92}
+html.dark-theme .home-shell .home-welcome{background:linear-gradient(135deg,#e5f0ff,#f7fbff);color:#1c3552}
+html.dark-theme .home-shell .home-welcome>span,html.dark-theme .home-shell .home-link-action,html.dark-theme .home-shell .home-qr-heading span{color:#175fa8}
+html.dark-theme .home-shell .home-welcome p,html.dark-theme .home-shell .home-link-card p,html.dark-theme .home-shell .home-qr-heading p{color:#5d6e82}
+html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}

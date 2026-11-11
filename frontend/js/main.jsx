@@ -1508,7 +1508,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
     window.location.assign(`${base}index.html`);
   };
   return (
-    <div className="shell">
+    <div className={`shell${page === "index.html" ? " home-shell" : ""}`}>
       <header>
         <a
           className="brand"
