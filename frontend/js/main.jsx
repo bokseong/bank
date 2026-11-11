@@ -77,7 +77,6 @@ const defaultConfig = {
   paymentsEnabled: true,
   topupEnabled: true,
   refundEnabled: true,
-  forcePaymentPassword: true,
   minPayment: 1,
   maxPayment: 1000000,
   maxTopupAmount: 50000,
@@ -164,7 +163,6 @@ function useSession() {
               role: "member",
               status: "active",
               balance: 0,
-              requirePaymentPassword: true,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             });
@@ -475,7 +473,6 @@ function Signup() {
     role: "member",
     status: "active",
     balance: 0,
-    requirePaymentPassword: true,
     termsAcceptedAt: serverTimestamp(),
     privacyAcceptedAt: serverTimestamp(),
     termsVersion: "2026-11-08",
@@ -781,12 +778,8 @@ function Scanner({ onRead, onClose }) {
 function Pay({ profile, config }) {
   const [invoice, setInvoice] = useState(null),
     [scanning, setScanning] = useState(false),
-    [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState("");
-  const needPassword =
-    config.forcePaymentPassword || profile.requirePaymentPassword !== false;
-  const passwordProvider = auth.currentUser?.providerData.some((provider) => provider.providerId === "password");
   async function read(q) {
     setScanning(false);
     setBusy(true);
@@ -820,17 +813,6 @@ function Pay({ profile, config }) {
     setBusy(true);
     setMsg("");
     try {
-      if (needPassword) {
-        if (passwordProvider) {
-          if (!password) throw new Error("비밀번호를 입력해 주세요.");
-          await reauthenticateWithCredential(auth.currentUser, EmailAuthProvider.credential(auth.currentUser.email, password));
-        } else if (auth.currentUser.providerData.some((provider) => provider.providerId === "google.com")) {
-          await reauthenticateWithPopup(auth.currentUser, googleProvider);
-        } else if (auth.currentUser.providerData.some((provider) => provider.providerId === "github.com")) {
-          await reauthenticateWithPopup(auth.currentUser, githubProvider);
-        } else throw new Error("다시 로그인한 뒤 결제를 시도해 주세요.");
-        await auth.currentUser.getIdToken(true);
-      }
       const payerRef = doc(db, "users", profile.id), shopRef = doc(db, "users", invoice.shopUid), orderRef = doc(db, "orders", invoice.id);
       const [payer, shop, order] = await Promise.all([getDoc(payerRef), getDoc(shopRef), getDoc(orderRef)]);
       if (!payer.exists() || !shop.exists() || !order.exists() || order.data().status !== "pending") throw new Error("이미 처리되었거나 사용할 수 없는 주문입니다.");
@@ -843,7 +825,6 @@ function Pay({ profile, config }) {
       await batch.commit();
       void writeOperationalLog("payment_completed", `${invoice.id}:${invoice.amount}`);
       setInvoice(null);
-      setPassword("");
       setMsg("결제가 완료되었습니다.");
     } catch (e) {
       setMsg(friendlyError(e));
@@ -880,20 +861,6 @@ function Pay({ profile, config }) {
                 <strong>{won(invoice.amount)}</strong>
               </div>
               <p>상품: {invoice.productName} {invoice.quantity}개</p>
-              {needPassword && passwordProvider && (
-                <label>
-                  결제 비밀번호
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    placeholder="로그인 비밀번호"
-                  />
-                </label>
-              )}
-              {needPassword && !passwordProvider && <p className="hint">결제 버튼을 누르면 로그인 제공업체로 본인 확인을 진행합니다.</p>}
               <button disabled={busy}>
                 {busy ? "결제 처리 중…" : `${won(invoice.amount)} 결제`}
               </button>
@@ -1158,17 +1125,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
     [withdrawOpen, setWithdrawOpen] = useState(false),
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false);
-  async function toggle(e) {
-    try {
-      await updateDoc(doc(db, "users", profile.id), {
-        requirePaymentPassword: e.target.checked,
-        updatedAt: serverTimestamp(),
-      });
-      setMsg("설정이 저장되었습니다.");
-    } catch (e) {
-      setMsg(friendlyError(e));
-    }
-  }
   async function withdraw(e) {
     e.preventDefault();
     const user = auth.currentUser;
@@ -1236,25 +1192,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
           <small>어두운 화면 테마를 이 기기에 적용합니다.</small>
         </div>
         <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />
-      </label>
-      <label className="switch-row">
-        <div>
-          <b>결제 전 비밀번호 확인</b>
-          <small>
-            {config.forcePaymentPassword
-              ? "관리자 정책으로 필수 적용 중"
-              : "해제하면 QR 확인 후 바로 결제됩니다."}
-          </small>
-        </div>
-        <input
-          type="checkbox"
-          checked={
-            config.forcePaymentPassword ||
-            profile.requirePaymentPassword !== false
-          }
-          disabled={config.forcePaymentPassword}
-          onChange={toggle}
-        />
       </label>
       {(profile.role === "member" || profile.role === "shop") && <RefundRequestForm profile={profile} config={config} />}
       {msg && <p className="notice">{msg}</p>}
@@ -1357,7 +1294,6 @@ function Admin({ config }) {
             ["topupEnabled", "충전 신청"],
             ["autoTopupEnabled", "은행 알림 자동 충전"],
             ["refundEnabled", "환불 신청"],
-            ["forcePaymentPassword", "결제 비밀번호 강제"],
           ].map(([k, label]) => (
             <label className="switch-row" key={k}>
               <b>{label}</b>

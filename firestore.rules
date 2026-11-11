@@ -18,16 +18,11 @@ service cloud.firestore {
     function active(){ return signedIn() && me().data.status == 'active' && config().systemOpen == true; }
     function payTx(id){ return getAfter(/databases/$(database)/documents/transactions/$(id)); }
     function orderAfter(id){ return getAfter(/databases/$(database)/documents/orders/$(id)); }
-    function recentAuth(){ return request.time.toMillis() / 1000 - request.auth.token.auth_time < 300; }
-    function passwordSatisfied(){
-      let payerData=getAfter(userPath(request.auth.uid)).data;
-      return (config().forcePaymentPassword != true && payerData.keys().hasAny(['requirePaymentPassword']) && payerData.requirePaymentPassword == false) || recentAuth();
-    }
     function validPaymentUserUpdate(uid){
       let id=request.resource.data.lastTransactionId;
       let tx=payTx(id).data;
       let order=orderAfter(tx.orderId).data;
-      return active() && payer() && config().paymentsEnabled == true && passwordSatisfied()
+      return active() && payer() && config().paymentsEnabled == true
         && tx.type == 'payment' && tx.payerUid == request.auth.uid && tx.amount is int
         && tx.amount >= config().minPayment && tx.amount <= config().maxPayment
         && order.status == 'paid' && order.payerUid == request.auth.uid && order.transactionId == id
@@ -45,7 +40,7 @@ service cloud.firestore {
     }
     function validOrderPayment(id){
       let tx=payTx(request.resource.data.transactionId).data;
-      return active() && payer() && config().paymentsEnabled == true && passwordSatisfied()
+      return active() && payer() && config().paymentsEnabled == true
         && resource.data.status == 'pending' && resource.data.expiresAt > request.time
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','payerUid','transactionId','paidAt'])
         && request.resource.data.status == 'paid' && request.resource.data.payerUid == request.auth.uid
@@ -59,7 +54,7 @@ service cloud.firestore {
       let payerBefore=get(userPath(tx.payerUid)).data;
       let shopAfter=getAfter(userPath(tx.boothUid)).data;
       let shopBefore=get(userPath(tx.boothUid)).data;
-      return active() && payer() && config().paymentsEnabled == true && passwordSatisfied()
+      return active() && payer() && config().paymentsEnabled == true
         && tx.keys().hasOnly(['type','payerUid','boothUid','boothName','amount','memo','orderId','participantUids','createdAt'])
         && tx.type == 'payment' && tx.payerUid == request.auth.uid && tx.boothUid == order.shopUid && tx.amount == order.amount
         && tx.amount is int && tx.amount >= config().minPayment && tx.amount <= config().maxPayment && tx.participantUids == [tx.payerUid,tx.boothUid]
@@ -128,15 +123,13 @@ service cloud.firestore {
     }
     match /users/{uid} {
       allow create: if (rootAdmin() && uid == request.auth.uid && request.resource.data.role == 'admin1' && request.resource.data.status == 'active' && request.resource.data.balance == 0)
-        || (signedIn() && uid == request.auth.uid && request.resource.data.role == 'member' && request.resource.data.status == 'active' && request.resource.data.balance == 0 && request.resource.data.requirePaymentPassword == true
+        || (signedIn() && uid == request.auth.uid && request.resource.data.role == 'member' && request.resource.data.status == 'active' && request.resource.data.balance == 0
           && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 20
           && request.resource.data.studentId is string && request.resource.data.studentId.size() > 0 && request.resource.data.studentId.size() <= 10
-          && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','requirePaymentPassword','createdAt','updatedAt']));
+          && request.resource.data.keys().hasOnly(['name','studentId','role','status','balance','createdAt','updatedAt']));
       allow get: if signedIn() && (uid == request.auth.uid || admin2());
       allow list: if admin2() || (active() && resource.data.role in ['shop', 'booth'] && resource.data.status == 'active');
-       allow update: if (signedIn() && uid == request.auth.uid
-         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['requirePaymentPassword','updatedAt']) && request.resource.data.requirePaymentPassword is bool)
-         || validPaymentUserUpdate(uid) || validAdjustmentUserUpdate(uid) || validRefundUserUpdate(uid) || validCancellationUserUpdate(uid) || adminUserUpdate(uid);
+       allow update: if validPaymentUserUpdate(uid) || validAdjustmentUserUpdate(uid) || validRefundUserUpdate(uid) || validCancellationUserUpdate(uid) || adminUserUpdate(uid);
       allow delete: if signedIn() && uid == request.auth.uid;
     }
     match /transactions/{id} {
