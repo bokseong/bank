@@ -57,3 +57,14 @@ html.dark-theme .home-shell .home-welcome{background:linear-gradient(135deg,#e5f
 html.dark-theme .home-shell .home-welcome>span,html.dark-theme .home-shell .home-link-action,html.dark-theme .home-shell .home-qr-heading span{color:#175fa8}
 html.dark-theme .home-shell .home-welcome p,html.dark-theme .home-shell .home-link-card p,html.dark-theme .home-shell .home-qr-heading p{color:#5d6e82}
 html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
+
+/* 모바일 하단 메뉴는 비활성화된 버튼처럼 보이지 않도록 대비를 높인다. */
+@media(max-width:1024px){
+  .home-shell nav{background:#f8fbff;border-top-color:#c8d9ec;box-shadow:0 -4px 18px #27415d14}
+  .home-shell nav a{color:#213b59;background:#eef5ff;border:1px solid transparent;border-radius:10px;font-weight:800;opacity:1}
+  .home-shell nav a.active{background:#1769c2;color:#fff;border-color:#0f579f;box-shadow:0 3px 8px #1769c24d}
+  .home-shell nav a.active svg{stroke-width:2.6}
+  html.dark-theme .home-shell nav{background:#f8fbff}
+  html.dark-theme .home-shell nav a{color:#213b59;background:#eef5ff}
+  html.dark-theme .home-shell nav a.active{background:#1769c2;color:#fff}
+}
