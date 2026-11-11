@@ -666,7 +666,7 @@ function Signup() {
   );
 }
 function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) {
-  const [items, setItems] = useState([]);
+  const [items, setItems] = useState([]), [reversals, setReversals] = useState([]);
   useEffect(() => {
     const q = admin
       ? query(
@@ -686,14 +686,37 @@ function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) 
       () => {},
     );
   }, [uid, admin]);
-  async function requestCancellation(transactionId) {
-    if (!window.confirm("이 결제를 취소 신청합니까? 1급 관리자의 승인 후 포인트가 되돌아갑니다.")) return;
+  useEffect(() => {
+    if (admin) return;
+    return onSnapshot(
+      query(collection(db, "cancellationRequests"), where("participantUids", "array-contains", uid), limit(30)),
+      (s) => setReversals(s.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))),
+      () => {},
+    );
+  }, [uid, admin]);
+  async function requestCancellation(transactionId, kind) {
+    const label = kind === "refund" ? "환불" : "결제 취소";
+    if (!window.confirm(`${label}를 요청합니까? 결제 상대방의 동의와 1급 관리자의 최종 승인 후 포인트가 되돌아갑니다.`)) return;
     try {
       const payment = await getDoc(doc(db, "transactions", transactionId));
-      if (!payment.exists() || payment.data().type !== "payment" || payment.data().boothUid !== uid) throw new Error("이 상점의 결제 기록만 취소 신청할 수 있습니다.");
+      if (!payment.exists() || payment.data().type !== "payment" || ![payment.data().boothUid, payment.data().payerUid].includes(uid)) throw new Error("결제 당사자만 환불 또는 결제 취소를 요청할 수 있습니다.");
       const data = payment.data();
-      await addDoc(collection(db, "cancellationRequests"), { transactionId, shopUid: uid, shopName: data.boothName, payerUid: data.payerUid, amount: data.amount, memo: data.memo || "", status: "pending", createdAt: serverTimestamp() });
-      window.alert("결제 취소 신청이 접수되었습니다.");
+      const requesterIsPayer = data.payerUid === uid;
+      await setDoc(doc(db, "cancellationRequests", transactionId), {
+        transactionId, kind, requesterUid: uid, shopUid: data.boothUid, shopName: data.boothName,
+        payerUid: data.payerUid, amount: data.amount, memo: data.memo || "", participantUids: [data.payerUid, data.boothUid],
+        payerConsent: requesterIsPayer, shopConsent: !requesterIsPayer, status: "awaiting_consent", createdAt: serverTimestamp(),
+      });
+      window.alert(`${label} 요청이 접수되었습니다. 상대방의 동의가 필요합니다.`);
+    } catch (e) { window.alert(friendlyError(e)); }
+  }
+  async function respondToCancellation(request, approved) {
+    const label = request.kind === "refund" ? "환불" : "결제 취소";
+    if (!window.confirm(approved ? `${label} 요청에 동의합니까? 양측 동의 후 1급 관리자의 최종 승인이 필요합니다.` : `${label} 요청을 거절합니까?`)) return;
+    try {
+      if (approved) await updateDoc(doc(db, "cancellationRequests", request.id), { payerConsent: true, shopConsent: true, status: "awaiting_admin", consentedAt: serverTimestamp() });
+      else await updateDoc(doc(db, "cancellationRequests", request.id), { status: "declined", declinedBy: uid, declinedAt: serverTimestamp() });
+      window.alert(approved ? "동의했습니다. 관리자 최종 승인을 기다려 주세요." : "요청을 거절했습니다.");
     } catch (e) { window.alert(friendlyError(e)); }
   }
   return (
@@ -704,7 +727,11 @@ function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) 
         {!items.length && (
           <div className="empty">아직 결제 내역이 없습니다.</div>
         )}
-        {items.map((x) => (
+        {items.map((x) => {
+          const reversal = reversals.find((r) => r.transactionId === x.id);
+          const label = reversal?.kind === "refund" ? "환불" : "결제 취소";
+          const isRequester = reversal?.requesterUid === uid;
+          return (
           <div className="row" key={x.id}>
             <div className={`icon ${x.type}`}>
               <Banknote />
@@ -720,9 +747,14 @@ function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) 
               {x.payerUid === uid ? "-" : "+"}
               {won(x.amount)}
             </strong>
-            {canCancel && x.type === "payment" && x.boothUid === uid && <button className="secondary" onClick={() => requestCancellation(x.id)}>결제 취소 신청</button>}
+            {canCancel && x.type === "payment" && !reversal && <span className="transaction-actions"><button className="secondary" onClick={() => requestCancellation(x.id, "refund")}>환불 요청</button><button className="secondary" onClick={() => requestCancellation(x.id, "cancellation")}>결제 취소 요청</button></span>}
+            {canCancel && x.type === "payment" && reversal?.status === "awaiting_consent" && isRequester && <small className="consent-state">{label} · 상대방 동의 대기</small>}
+            {canCancel && x.type === "payment" && reversal?.status === "awaiting_consent" && !isRequester && <span className="transaction-actions"><button onClick={() => respondToCancellation(reversal, true)}>동의</button><button className="danger" onClick={() => respondToCancellation(reversal, false)}>거절</button></span>}
+            {canCancel && x.type === "payment" && reversal?.status === "awaiting_admin" && <small className="consent-state">{label} · 양측 동의 완료, 관리자 승인 대기</small>}
+            {canCancel && x.type === "payment" && ["declined", "rejected"].includes(reversal?.status) && <small className="consent-state">{label} · {reversal.status === "declined" ? "상대방이 거절함" : "관리자가 반려함"}</small>}
           </div>
-        ))}
+        );
+        })}
       </div>
     </section>
   );
@@ -1120,7 +1152,7 @@ function RefundRequestForm({ profile, config }) {
     try { if (!config.refundEnabled) throw new Error("현재 환불 신청이 중지되어 있습니다."); await addDoc(collection(db, "refundRequests"), { requesterUid: profile.id, requesterName: profile.name, requesterRole: profile.role, amount: value, memo: memo.slice(0, 80), status: "pending", createdAt: serverTimestamp() }); void writeOperationalLog("refund_requested", String(value)); setAmount(""); setMemo(""); setMsg("환불 신청이 접수되었습니다. 관리자의 최종 승인을 기다려 주세요."); }
     catch (e) { setMsg(friendlyError(e)); }
   }
-  return <form className="refund-request" onSubmit={submit}><h3>포인트 환불 신청</h3><p>등록한 환급 계좌로 이체하기 전 1급 관리자의 최종 승인이 필요합니다.</p><label>환불 금액<input required inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder={`잔액 ${won(profile.balance)} 이하`} /></label><label>사유(선택)<input maxLength="80" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="예: 축제 종료 잔액 환급" /></label><button>환불 신청</button>{msg && <p className="notice">{msg}</p>}</form>;
+  return <form className="refund-request" onSubmit={submit}><h3>포인트 잔액 정산 신청</h3><p>결제 건 환불·취소는 결제 내역에서 상대방 동의를 먼저 받아야 합니다. 이 양식은 축제 종료 후 남은 포인트의 계좌 정산용입니다.</p><label>정산 금액<input required inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder={`잔액 ${won(profile.balance)} 이하`} /></label><label>사유(선택)<input maxLength="80" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="예: 축제 종료 잔액 정산" /></label><button>정산 신청</button>{msg && <p className="notice">{msg}</p>}</form>;
 }
 function RefundReviewList({ final }) {
   const [items, setItems] = useState([]), [msg, setMsg] = useState("");
@@ -1135,7 +1167,7 @@ function CancellationReviewList() {
   useEffect(() => onSnapshot(query(collection(db, "cancellationRequests"), orderBy("createdAt", "desc"), limit(100)), (s) => setItems(s.docs.map((d) => ({ id: d.id, ...d.data() }))), () => setMsg("결제 취소 신청 목록을 불러올 수 없습니다.")), []);
   async function finish(id, approved) {
     try {
-      if (!window.confirm(approved ? "결제 취소를 승인하고 포인트를 되돌립니까?" : "결제 취소 신청을 반려합니까?")) return;
+      if (!window.confirm(approved ? "양측 동의가 확인된 요청을 승인하고 포인트를 되돌립니까?" : "환불·결제 취소 요청을 반려합니까?")) return;
       const requestRef = doc(db, "cancellationRequests", id), request = await getDoc(requestRef);
       if (!request.exists()) throw new Error("결제 취소 신청을 찾을 수 없습니다.");
       if (!approved) await updateDoc(requestRef, { status: "rejected", finalizedBy: auth.currentUser.uid, finalizedAt: serverTimestamp() });
@@ -1143,8 +1175,8 @@ function CancellationReviewList() {
       setMsg(approved ? "결제 취소를 승인했습니다." : "결제 취소 신청을 반려했습니다.");
     } catch (e) { setMsg(friendlyError(e)); }
   }
-  const pending = items.filter((x) => x.status === "pending");
-  return <section className="panel refund-review"><h2>결제 취소 최종 승인</h2><div className="list">{!pending.length && <div className="empty">처리할 결제 취소 신청이 없습니다.</div>}{pending.map((x) => <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.shopName} · {won(x.amount)}</b><small>결제 취소 신청 · {x.memo || "상품 정보 없음"}</small></div><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></div>)}</div>{msg && <p className="notice">{msg}</p>}</section>;
+  const pending = items.filter((x) => x.status === "awaiting_admin" && x.payerConsent === true && x.shopConsent === true);
+  return <section className="panel refund-review"><h2>환불·결제 취소 최종 승인</h2><p className="hint">일반회원과 상점의 동의가 모두 완료된 요청만 승인할 수 있습니다.</p><div className="list">{!pending.length && <div className="empty">양측 동의가 완료된 요청이 없습니다.</div>}{pending.map((x) => <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.shopName} · {won(x.amount)}</b><small>{x.kind === "refund" ? "환불" : "결제 취소"} · 양측 동의 완료 · {x.memo || "상품 정보 없음"}</small></div><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></div>)}</div>{msg && <p className="notice">{msg}</p>}</section>;
 }
 function UserSettings({ profile, config, darkMode, setDarkMode }) {
   const [msg, setMsg] = useState(""),
@@ -1452,7 +1484,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
   let content;
   if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
   else if (page === "history.html")
-    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop" && !isDepositChecker(profile)} canCancel={profile.role === "shop"} />;
+    content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop" && !isDepositChecker(profile)} canCancel={["member", "shop"].includes(profile.role)} />;
   else if (page === "settings.html")
     content = <UserSettings profile={profile} config={config} darkMode={darkMode} setDarkMode={setDarkMode} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;

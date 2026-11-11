@@ -68,3 +68,8 @@ html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
   html.dark-theme .home-shell nav a{color:#213b59;background:#eef5ff}
   html.dark-theme .home-shell nav a.active{background:#1769c2;color:#fff}
 }
+
+.transaction-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.transaction-actions button{width:auto;padding:9px 11px;white-space:nowrap}
+.consent-state{max-width:160px;color:#52667d;text-align:right;line-height:1.45}
+@media(max-width:640px){.row:has(.transaction-actions),.row:has(.consent-state){align-items:flex-start;flex-wrap:wrap}.transaction-actions{width:100%;justify-content:stretch}.transaction-actions button{flex:1}.consent-state{max-width:none;width:100%;text-align:left}}

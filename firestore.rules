@@ -108,7 +108,7 @@ service cloud.firestore {
       return admin1() && tx.keys().hasOnly(['type','payerUid','boothUid','boothName','amount','memo','participantUids','processedBy','cancellationRequestId','originalTransactionId','createdAt'])
         && tx.type == 'cancellation' && tx.processedBy == request.auth.uid && tx.originalTransactionId == cancellation.transactionId
         && original.type == 'payment' && tx.payerUid == original.payerUid && tx.boothUid == original.boothUid && tx.amount == original.amount && tx.participantUids == [tx.payerUid,tx.boothUid]
-        && cancellation.status == 'approved' && cancellation.finalizedBy == request.auth.uid && cancellation.reversalTransactionId == request.resource.id
+        && cancellation.status == 'approved' && cancellation.payerConsent == true && cancellation.shopConsent == true && cancellation.finalizedBy == request.auth.uid && cancellation.reversalTransactionId == request.resource.id
         && payerAfter.balance == payerBefore.balance+tx.amount && payerAfter.lastTransactionId == request.resource.id
         && shopAfter.balance == shopBefore.balance-tx.amount && shopAfter.lastTransactionId == request.resource.id;
     }
@@ -117,8 +117,17 @@ service cloud.firestore {
       return admin1() && tx.type == 'cancellation' && tx.processedBy == request.auth.uid && (uid == tx.payerUid || uid == tx.boothUid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance','lastTransactionId','updatedAt']);
     }
+    function validCancellationConsentUpdate(){
+      let isCounterparty=request.auth.uid != resource.data.requesterUid && request.auth.uid in resource.data.participantUids;
+      let agreed=request.resource.data.diff(resource.data).affectedKeys().hasOnly(['payerConsent','shopConsent','status','consentedAt'])
+        && request.resource.data.payerConsent == true && request.resource.data.shopConsent == true
+        && request.resource.data.status == 'awaiting_admin';
+      let declined=request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','declinedBy','declinedAt'])
+        && request.resource.data.status == 'declined' && request.resource.data.declinedBy == request.auth.uid;
+      return signedIn() && resource.data.status == 'awaiting_consent' && isCounterparty && (agreed || declined);
+    }
     function validCancellationFinalUpdate(){
-      return admin1() && resource.data.status == 'pending' && request.resource.data.status == 'approved'
+      return admin1() && resource.data.status == 'awaiting_admin' && resource.data.payerConsent == true && resource.data.shopConsent == true && request.resource.data.status == 'approved'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt','reversalTransactionId'])
         && request.resource.data.finalizedBy == request.auth.uid && payTx(request.resource.data.reversalTransactionId).data.type == 'cancellation';
     }
@@ -183,16 +192,25 @@ service cloud.firestore {
       allow delete: if false;
     }
     match /cancellationRequests/{id} {
-      allow get: if signedIn() && (resource.data.shopUid == request.auth.uid || admin1());
-      allow list: if admin1() || (shop() && resource.data.shopUid == request.auth.uid);
-       allow create: if shop() && request.resource.data.keys().hasOnly(['transactionId','shopUid','shopName','payerUid','amount','memo','status','createdAt'])
-         && request.resource.data.shopUid == request.auth.uid && request.resource.data.shopName == me().data.name && request.resource.data.status == 'pending'
+      allow get: if signedIn() && (request.auth.uid in resource.data.participantUids || admin2());
+      allow list: if admin2() || (signedIn() && request.auth.uid in resource.data.participantUids);
+       allow create: if active() && (shop() || roleIs(['member','student']))
+         && id == request.resource.data.transactionId
+         && request.resource.data.keys().hasOnly(['transactionId','kind','requesterUid','shopUid','shopName','payerUid','amount','memo','participantUids','payerConsent','shopConsent','status','createdAt'])
+         && request.resource.data.kind in ['refund','cancellation'] && request.resource.data.requesterUid == request.auth.uid
+         && request.resource.data.status == 'awaiting_consent' && request.resource.data.memo is string && request.resource.data.memo.size() <= 120
          && get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.type == 'payment'
-         && get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.boothUid == request.auth.uid
+         && request.resource.data.shopUid == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.boothUid
+         && request.resource.data.shopName == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.boothName
          && request.resource.data.payerUid == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.payerUid
-         && request.resource.data.amount == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.amount;
-       allow update: if admin1() && resource.data.status == 'pending' && request.resource.data.status == 'rejected'
-         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt']) && request.resource.data.finalizedBy == request.auth.uid
+         && request.resource.data.amount == get(/databases/$(database)/documents/transactions/$(request.resource.data.transactionId)).data.amount
+         && request.resource.data.participantUids == [request.resource.data.payerUid,request.resource.data.shopUid]
+         && request.auth.uid in request.resource.data.participantUids
+         && request.resource.data.payerConsent == (request.auth.uid == request.resource.data.payerUid)
+         && request.resource.data.shopConsent == (request.auth.uid == request.resource.data.shopUid);
+       allow update: if validCancellationConsentUpdate()
+         || (admin1() && resource.data.status == 'awaiting_admin' && resource.data.payerConsent == true && resource.data.shopConsent == true && request.resource.data.status == 'rejected'
+           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','finalizedBy','finalizedAt']) && request.resource.data.finalizedBy == request.auth.uid)
          || validCancellationFinalUpdate();
       allow delete: if false;
     }
