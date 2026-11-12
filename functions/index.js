@@ -16,6 +16,11 @@ const MAX_NOTIFICATION_AGE_MS = 4 * 60 * 60 * 1000;
 const MANUAL_REVIEW_TTL_MS = 24 * 60 * 60 * 1000;
 
 function requireSignedIn(request) { if (!request.auth) throw new HttpsError("unauthenticated", "로그인이 필요합니다."); }
+function rejectReplayedAppCheck(request) {
+  if (request.app?.alreadyConsumed) {
+    throw new HttpsError("unauthenticated", "이미 사용된 보안 토큰입니다. 화면을 새로고침한 뒤 다시 시도해 주세요.");
+  }
+}
 async function requireActiveRole(request, acceptedRoles) {
   requireSignedIn(request);
   const profile = await db.doc(`users/${request.auth.uid}`).get();
@@ -32,6 +37,7 @@ function verifySignature(publicKeySpki, message, signature) { try { const key = 
 
 // The suffix is credited too, so the real deposit and in-app balance always agree.
 export const createTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  rejectReplayedAppCheck(request);
   requireSignedIn(request);
   const requestedAmount = positiveInteger(request.data?.requestedAmount, "충전 금액");
   const [userSnap, configSnap] = await Promise.all([db.doc(`users/${request.auth.uid}`).get(), db.doc("settings/config").get()]);
@@ -61,6 +67,7 @@ export const createTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, 
 });
 
 export const ingestDepositNotification = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  rejectReplayedAppCheck(request);
   await requireActiveRole(request, ["deposit_checker"]);
   if (request.auth.token.collector !== true) throw new HttpsError("permission-denied", "등록된 입금 수집기만 사용할 수 있습니다.");
   const raw = request.data?.event || {}, amount = positiveInteger(raw.amount, "입금 금액"), receivedAt = positiveInteger(raw.receivedAt, "수신 시각");
@@ -93,6 +100,7 @@ export const ingestDepositNotification = onCall({ region: REGION, enforceAppChec
 });
 
 export const listPendingTopUpOrders = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  rejectReplayedAppCheck(request);
   await requireActiveRole(request, ["deposit_checker"]);
   const pending = await db.collection("topUpOrders").where("status", "==", "pending").limit(100).get();
   const users = await Promise.all(pending.docs.map((item) => db.doc(`users/${item.data().uid}`).get()));
@@ -104,6 +112,7 @@ export const listPendingTopUpOrders = onCall({ region: REGION, enforceAppCheck: 
 });
 
 export const confirmTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  rejectReplayedAppCheck(request);
   const checker = await requireActiveRole(request, ["deposit_checker"]);
   const orderId = String(request.data?.orderId || "").trim();
   const confirmedAmount = positiveInteger(request.data?.confirmedAmount, "확인 금액");
