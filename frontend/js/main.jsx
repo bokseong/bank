@@ -68,6 +68,7 @@ const googleProvider = new GoogleAuthProvider(),
   githubProvider = new GithubAuthProvider();
 const ROOT_ADMIN_EMAIL = "github.jwastro09@gmail.com";
 const THEME_STORAGE_KEY = "bokseong-festival-bank-theme";
+const AUTO_TOPUP_PACKAGES = [1000, 2000, 3000, 5000, 10000];
 const isRootAdmin = (user) =>
   user?.emailVerified && user.email?.toLowerCase() === ROOT_ADMIN_EMAIL;
 const normalizeRole = (role) => legacyRoles[role] || role || "member";
@@ -336,6 +337,7 @@ function Auth() {
         </form>
         <ProviderButtons busy={busy} onProvider={oauth} mode="로그인" />
         <small className="auth-help">
+          계정 발급 또는 비밀번호 재설정이 필요하면 축제은행 관리자에게 문의하세요.
         </small>
       </section>
     </main>
@@ -696,27 +698,20 @@ function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) 
   }, [uid, admin]);
   async function requestCancellation(transactionId, kind) {
     const label = kind === "refund" ? "환불" : "결제 취소";
-    if (!window.confirm(`${label}를 요청합니까? 결제 상대방의 동의와 1급 관리자의 최종 승인 후 포인트가 되돌아갑니다.`)) return;
+    if (!window.confirm(`${label}를 요청합니까? 결제 상대방이 동의하면 포인트가 즉시 되돌아갑니다.`)) return;
     try {
-      const payment = await getDoc(doc(db, "transactions", transactionId));
-      if (!payment.exists() || payment.data().type !== "payment" || ![payment.data().boothUid, payment.data().payerUid].includes(uid)) throw new Error("결제 당사자만 환불 또는 결제 취소를 요청할 수 있습니다.");
-      const data = payment.data();
-      const requesterIsPayer = data.payerUid === uid;
-      await setDoc(doc(db, "cancellationRequests", transactionId), {
-        transactionId, kind, requesterUid: uid, shopUid: data.boothUid, shopName: data.boothName,
-        payerUid: data.payerUid, amount: data.amount, memo: data.memo || "", participantUids: [data.payerUid, data.boothUid],
-        payerConsent: requesterIsPayer, shopConsent: !requesterIsPayer, status: "awaiting_consent", createdAt: serverTimestamp(),
-      });
+      const call = httpsCallable(functions, "createPaymentReversalRequest", { limitedUseAppCheckTokens: true });
+      await call({ transactionId, kind });
       window.alert(`${label} 요청이 접수되었습니다. 상대방의 동의가 필요합니다.`);
     } catch (e) { window.alert(friendlyError(e)); }
   }
   async function respondToCancellation(request, approved) {
     const label = request.kind === "refund" ? "환불" : "결제 취소";
-    if (!window.confirm(approved ? `${label} 요청에 동의합니까? 양측 동의 후 1급 관리자의 최종 승인이 필요합니다.` : `${label} 요청을 거절합니까?`)) return;
+    if (!window.confirm(approved ? `${label} 요청에 동의합니까? 동의하면 포인트가 즉시 되돌아갑니다.` : `${label} 요청을 거절합니까?`)) return;
     try {
-      if (approved) await updateDoc(doc(db, "cancellationRequests", request.id), { payerConsent: true, shopConsent: true, status: "awaiting_admin", consentedAt: serverTimestamp() });
-      else await updateDoc(doc(db, "cancellationRequests", request.id), { status: "declined", declinedBy: uid, declinedAt: serverTimestamp() });
-      window.alert(approved ? "동의했습니다. 관리자 최종 승인을 기다려 주세요." : "요청을 거절했습니다.");
+      const call = httpsCallable(functions, "respondPaymentReversal", { limitedUseAppCheckTokens: true });
+      await call({ transactionId: request.transactionId, approve: approved });
+      window.alert(approved ? "동의가 완료되어 포인트를 되돌렸습니다." : "요청을 거절했습니다.");
     } catch (e) { window.alert(friendlyError(e)); }
   }
   return (
@@ -750,8 +745,8 @@ function HistoryList({ uid, admin = false, canPay = false, canCancel = false }) 
             {canCancel && x.type === "payment" && !reversal && <span className="transaction-actions"><button className="secondary" onClick={() => requestCancellation(x.id, "refund")}>환불 요청</button><button className="secondary" onClick={() => requestCancellation(x.id, "cancellation")}>결제 취소 요청</button></span>}
             {canCancel && x.type === "payment" && reversal?.status === "awaiting_consent" && isRequester && <small className="consent-state">{label} · 상대방 동의 대기</small>}
             {canCancel && x.type === "payment" && reversal?.status === "awaiting_consent" && !isRequester && <span className="transaction-actions"><button onClick={() => respondToCancellation(reversal, true)}>동의</button><button className="danger" onClick={() => respondToCancellation(reversal, false)}>거절</button></span>}
-            {canCancel && x.type === "payment" && reversal?.status === "awaiting_admin" && <small className="consent-state">{label} · 양측 동의 완료, 관리자 승인 대기</small>}
-            {canCancel && x.type === "payment" && ["declined", "rejected"].includes(reversal?.status) && <small className="consent-state">{label} · {reversal.status === "declined" ? "상대방이 거절함" : "관리자가 반려함"}</small>}
+            {canCancel && x.type === "payment" && reversal?.status === "approved" && <small className="consent-state">{label} · 처리 완료</small>}
+            {canCancel && x.type === "payment" && reversal?.status === "declined" && <small className="consent-state">{label} · 상대방이 거절함</small>}
           </div>
         );
         })}
@@ -808,7 +803,7 @@ function Scanner({ onRead, onClose }) {
         </button>
       </div>
       <video ref={video} muted playsInline />
-      <p>{error || "QR 코드를 비춰 주세요."}</p>
+      <p>{error || "QR 코드가 사각형 안에 들어오게 비춰 주세요."}</p>
     </div>
   );
 }
@@ -1028,13 +1023,13 @@ function Shop({ profile, config }) {
       </section>
       {msg && <p className="notice">{msg}</p>}
       <HistoryList uid={profile.id} canCancel />
-      <RefundRequestForm profile={profile} config={config} />
     </>
   );
 }
 function AutoTopUp({ profile, config }) {
-  const [amount, setAmount] = useState("5000"), [order, setOrder] = useState(null), [msg, setMsg] = useState(""), [busy, setBusy] = useState(false);
+  const [amount, setAmount] = useState("5000"), [order, setOrder] = useState(null), [msg, setMsg] = useState(""), [busy, setBusy] = useState(false), [now, setNow] = useState(Date.now());
   const enabled = config.autoTopupEnabled === true && config.topupEnabled !== false;
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => {
     if (!profile?.id) return undefined;
     return onSnapshot(query(collection(db, "topUpOrders"), where("uid", "==", profile.id), orderBy("createdAt", "desc"), limit(1)), (snap) => {
@@ -1048,39 +1043,43 @@ function AutoTopUp({ profile, config }) {
   }
   async function createOrder(e) {
     e.preventDefault();
-    const requestedAmount = validAmount(amount, config.maxTopupAmount);
-    if (!requestedAmount) return setMsg(`1원 이상 ${won(config.maxTopupAmount)} 이하로 입력해 주세요.`);
+    const requestedPoints = Number(amount);
+    if (!AUTO_TOPUP_PACKAGES.includes(requestedPoints)) return setMsg("자동 충전은 1,000P, 2,000P, 3,000P, 5,000P, 10,000P만 선택할 수 있습니다.");
     setBusy(true); setMsg("");
     try {
       const call = httpsCallable(functions, "createTopUpOrder", { limitedUseAppCheckTokens: true });
-      const result = await call({ requestedAmount });
+      const result = await call({ requestedPoints });
       setOrder({ id: result.data.orderId, ...result.data, status: "pending", expiresAt: Timestamp.fromMillis(result.data.expiresAt) });
       setMsg("고유 입금 금액을 발급했습니다. 안내 금액 그대로 송금해 주세요.");
     } catch (error) { setMsg(friendlyError(error)); }
     finally { setBusy(false); }
   }
-  const expired = order?.expiresAt?.toMillis?.() && order.expiresAt.toMillis() < Date.now();
+  const requestedPoints = Number(order?.requestedPoints || 0);
+  const transferAmount = Number(order?.transferAmount || 0);
+  const expired = order?.expiresAt?.toMillis?.() && order.expiresAt.toMillis() < now;
   return <>
     <section className="panel auto-topup">
       <h2>자동 계좌 충전</h2>
-      <p>입금자명을 바꾸지 않아도 됩니다. 시스템이 발급한 <b>정확한 입금 금액</b>을 학생회 계좌로 송금하면, 운영 기기의 은행 입금 알림과 자동으로 대조해 포인트를 지급합니다.</p>
+      <p>입금자명을 바꾸지 않아도 됩니다. 시스템이 발급한 <b>정확한 입금 금액</b>을 학생회 계좌로 송금하면, 운영 기기의 은행 입금 알림과 자동으로 대조해 선택한 포인트를 지급합니다.</p>
       {!enabled && <p className="error">자동 계좌 충전이 아직 준비되지 않았습니다. 운영 기기 연결 상태를 관리자에게 확인해 주세요.</p>}
       <form onSubmit={createOrder}>
-        <label>원하는 충전 금액<input disabled={!enabled || busy} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))} placeholder="예: 5000" /></label>
+        <label>충전 포인트<select disabled={!enabled || busy} value={amount} onChange={(e) => setAmount(e.target.value)}>{AUTO_TOPUP_PACKAGES.map((points) => <option key={points} value={points}>{points.toLocaleString("ko-KR")}P</option>)}</select></label>
         <button disabled={!enabled || busy}>{busy ? "고유 금액을 발급하는 중…" : "입금 금액 발급"}</button>
       </form>
+      <p className="hint">한 번에 10,000P보다 많은 금액 또는 현금 충전은 기부 부스에 문의해 주세요.</p>
     </section>
     {order && <section className="panel topup-order">
       <h2>{order.status === "paid" ? "충전 완료" : expired ? "입금 기한 만료" : "송금 안내"}</h2>
-      {order.status === "paid" ? <p className="success">{won(order.assignedAmount)}이 자동 충전되었습니다. 지갑 잔액과 거래 내역에서 확인해 주세요.</p> : <>
-        <div className="topup-amount"><span>반드시 송금할 금액</span><strong>{won(order.assignedAmount)}</strong><small>충전 포인트도 {won(order.assignedAmount)}입니다.</small></div>
+      {order.status === "paid" ? <p className="success">{requestedPoints.toLocaleString("ko-KR")}P가 자동 충전되었습니다. 지갑 잔액과 거래 내역에서 확인해 주세요.</p> : <>
+        <div className="topup-amount"><span>반드시 송금할 금액</span><strong>{won(transferAmount)}</strong><small>충전 포인트: {requestedPoints.toLocaleString("ko-KR")}P · 운영 지원: {won(Number(order.subsidyAmount || 0))}</small></div>
         <dl className="topup-details">
           <div><dt>받는 계좌</dt><dd>{order.bankAccountLabel || config.bankAccountLabel}</dd></div>
           <div><dt>계좌번호</dt><dd>{order.bankAccountNumber || config.bankAccountNumber || "관리자 설정 필요"}</dd></div>
-          <div><dt>입금 기한</dt><dd>{order.expiresAt?.toDate?.().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }) || "10분"}까지</dd></div>
+          <div><dt>확인 코드</dt><dd>{String(order.matchCode || "").padStart(2, "0")}</dd></div>
+          <div><dt>입금 기한</dt><dd>{order.expiresAt?.toDate?.().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) || "1분"}까지</dd></div>
         </dl>
-        <div className="topup-actions"><button type="button" className="secondary" onClick={() => copy(order.assignedAmount, "입금 금액")}>금액 복사</button><button type="button" className="secondary" onClick={() => copy(order.bankAccountNumber || config.bankAccountNumber, "계좌번호")}>계좌번호 복사</button></div>
-        <p className="hint">은행 앱에서 평소처럼 송금하면 됩니다. 입금자명·메모는 바꾸지 마세요. 입금 알림 수신 후 자동 충전되며, 지연·불일치 건은 운영자가 확인합니다.</p>
+        <div className="topup-actions"><button type="button" className="secondary" onClick={() => copy(transferAmount, "입금 금액")}>금액 복사</button><button type="button" className="secondary" onClick={() => copy(order.bankAccountNumber || config.bankAccountNumber, "계좌번호")}>계좌번호 복사</button></div>
+        <p className="hint">은행 앱에서 평소처럼 송금하면 됩니다. 입금자명·메모는 바꾸지 마세요. 코드 끝 두 자리가 포함된 금액을 <b>1분 안에</b> 송금해야 하며, 만료·불일치 건은 기부 부스에 문의해 주세요.</p>
       </>}
     </section>}
     {msg && <p className="notice">{msg}</p>}
@@ -1090,21 +1089,29 @@ function DepositReview() {
   const [orders, setOrders] = useState([]), [busy, setBusy] = useState(false), [msg, setMsg] = useState("");
   const load = async () => {
     setBusy(true); setMsg("");
-    try { const call = httpsCallable(functions, "listPendingTopUpOrders", { limitedUseAppCheckTokens: true }); const result = await call(); setOrders(result.data?.orders || []); }
-    catch (error) { setMsg(friendlyError(error)); }
+    try {
+      const call = httpsCallable(functions, "listPendingTopUpOrders", { limitedUseAppCheckTokens: true });
+      const result = await call();
+      setOrders(result.data?.orders || []);
+    } catch (error) { setMsg(friendlyError(error)); }
     finally { setBusy(false); }
   };
   useEffect(() => { void load(); }, []);
   async function confirmOrder(order) {
-    if (!window.confirm(`${order.name} (${order.studentId || "학번 없음"})의 ${won(order.assignedAmount)} 입금을 은행 거래내역에서 직접 확인했습니까?\n확정 후에는 포인트가 즉시 지급됩니다.`)) return;
+    if (!window.confirm(`${order.name} (${order.studentId || "학번 없음"})의 실제 입금 ${won(order.transferAmount)}을 은행 거래내역에서 직접 확인했습니까?\n확정 후에는 ${Number(order.requestedPoints).toLocaleString("ko-KR")}P가 즉시 지급됩니다.`)) return;
     setBusy(true); setMsg("");
-    try { const call = httpsCallable(functions, "confirmTopUpOrder", { limitedUseAppCheckTokens: true }); const result = await call({ orderId: order.id, confirmedAmount: order.assignedAmount }); setMsg(result.data?.state === "already_confirmed" ? "이미 처리된 충전 요청입니다." : `${order.name} 계정에 ${won(order.assignedAmount)}을 지급했습니다.`); await load(); }
-    catch (error) { setMsg(friendlyError(error)); setBusy(false); }
+    try {
+      const call = httpsCallable(functions, "confirmTopUpOrder", { limitedUseAppCheckTokens: true });
+      const result = await call({ orderId: order.id, confirmedAmount: order.transferAmount });
+      setMsg(result.data?.state === "already_confirmed" ? "이미 처리된 충전 요청입니다." : `${order.name} 계정에 ${Number(order.requestedPoints).toLocaleString("ko-KR")}P를 지급했습니다.`);
+      await load();
+    } catch (error) { setMsg(friendlyError(error)); setBusy(false); }
   }
   return <section className="panel deposit-review">
     <div className="deposit-review-heading"><div><h2>입금 확인</h2><p>은행 거래내역의 입금 금액과 아래 고유 금액이 정확히 일치할 때만 확정하세요. 확정 처리는 감사 로그에 남으며 되돌릴 수 없습니다.</p></div><button className="secondary" disabled={busy} onClick={load}><RefreshCw /> 새로고침</button></div>
-    {orders.length === 0 && !busy ? <p className="empty">확인할 보류 충전 요청이 없습니다.</p> : <div className="deposit-order-list">{orders.map((order) => <article className="deposit-order" key={order.id}><div><strong>{order.name}</strong><span>{order.studentId || "학번 미등록"}</span><small>요청 {won(order.requestedAmount)} · 발급 {won(order.assignedAmount)}</small><small>요청 시각 {order.createdAt ? new Date(order.createdAt).toLocaleString("ko-KR") : "확인 중"}</small></div><button disabled={busy} onClick={() => confirmOrder(order)}>입금 확인·지급</button></article>)}</div>}
-    {busy && <p className="hint">충전 요청을 확인하는 중입니다…</p>}{msg && <p className="notice">{msg}</p>}
+    {orders.length === 0 && !busy ? <p className="empty">확인할 보류 충전 요청이 없습니다.</p> : <div className="deposit-order-list">{orders.map((order) => <article className="deposit-order" key={order.id}><div><strong>{order.name}</strong><span>{order.studentId || "학번 미등록"}</span><small>지급 {Number(order.requestedPoints).toLocaleString("ko-KR")}P · 실제 입금 {won(order.transferAmount)} · 코드 {String(order.matchCode || "").padStart(2, "0")}</small><small>요청 시각 {order.createdAt ? new Date(order.createdAt).toLocaleString("ko-KR") : "확인 중"}</small></div><button disabled={busy} onClick={() => confirmOrder(order)}>입금 확인·지급</button></article>)}</div>}
+    {busy && <p className="hint">충전 요청을 확인하는 중입니다…</p>}
+    {msg && <p className="notice">{msg}</p>}
   </section>;
 }
 function PointControl({ profile, config }) {
@@ -1142,7 +1149,7 @@ function PointControl({ profile, config }) {
     <label>충전 금액<input required inputMode="numeric" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value.replace(/\D/g, "") })} placeholder="예: 1000" /></label>
     <label>사유<input maxLength="80" value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} placeholder="예: 환전소 수기 정산" /></label>
     <button>충전 확인 및 저장</button>
-  </form>{msg && <p className="notice">{msg}</p>}</section><RefundReviewList final={false} /></>;
+  </form>{msg && <p className="notice">{msg}</p>}</section></>;
 }
 function RefundRequestForm({ profile, config }) {
   const [amount, setAmount] = useState(""), [memo, setMemo] = useState(""), [msg, setMsg] = useState("");
@@ -1251,7 +1258,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
         </div>
         <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />
       </label>
-      {(profile.role === "member" || profile.role === "shop") && <RefundRequestForm profile={profile} config={config} />}
       {msg && <p className="notice">{msg}</p>}
       {!isRootAdmin(auth.currentUser) && (
         <section className="withdraw-section">
@@ -1327,7 +1333,7 @@ function Admin({ config }) {
           <span>활성 계정</span>
           <strong>{activeUsers.length}</strong>
         </article>
-        <article><span>포인트 환급</span><strong>관리자 검토</strong></article>
+        <article><span>잔여 포인트</span><strong>축제 종료 후 기부</strong></article>
       </section>
       <form className="panel admin-settings" onSubmit={save}>
         <h2>사이트 운영 설정</h2>
@@ -1351,7 +1357,6 @@ function Admin({ config }) {
             ["paymentsEnabled", "결제"],
             ["topupEnabled", "충전 신청"],
             ["autoTopupEnabled", "은행 알림 자동 충전"],
-            ["refundEnabled", "환불 신청"],
           ].map(([k, label]) => (
             <label className="switch-row" key={k}>
               <b>{label}</b>
@@ -1429,8 +1434,7 @@ function Admin({ config }) {
           </table>
         </div>
       </section>
-      <RefundReviewList final />
-      <CancellationReviewList />
+      <section className="panel"><h2>정산 안내</h2><p>포인트는 현금으로 환급하거나 출금하지 않습니다. 축제 종료 후 남은 포인트는 지역 불우이웃 돕기 센터에 기부할 예정입니다. 결제 건 환불·결제 취소는 거래 내역에서 상대방 동의로 즉시 처리됩니다.</p></section>
       <HistoryList admin />
     </>
   );
