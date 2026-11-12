@@ -1,150 +1,305 @@
-# 복성고 축제은행
+# 복성고 축제은행 운영 가이드
 
-학교 축제용 선불 포인트 결제 웹 앱입니다. 학생 지갑, 충전·환불 신청, 부스 QR 결제, 부스 매출, 관리자 승인 및 변경 불가능한 거래 원장을 제공합니다.
+최종 수정: 2026-11-12  
+대상 사이트: <https://bokseong.github.io/bank/>
 
-> 이 서비스는 은행이나 법정화폐 서비스가 아닙니다. 학교 내부 행사에서만 사용하는 폐쇄형 포인트 시스템이며, 운영 전 학교의 회계·개인정보 처리 승인을 받아야 합니다.
+## 1. 시스템 구성
 
-## 운영 기능
+| 구분 | 사용 서비스 | 역할 |
+| --- | --- | --- |
+| 웹 화면 | GitHub Pages | 로그인, QR 결제, 상점 관리, 관리자 화면 제공 |
+| 사용자 인증 | Firebase Authentication | 이메일/비밀번호, Google, GitHub 로그인 |
+| 주요 데이터 | Cloud Firestore | 사용자, 상품, 주문, 거래, 환불·취소 요청, 운영 설정 저장 |
+| 운영 로그 | Realtime Database | 입금 확인기·운영 이벤트 로그 저장 |
+| 서버 처리 | Cloud Functions 2세대 | 충전 요청, 입금 알림 수집, 입금 확정 처리 |
+| 악용 방지 | Firebase App Check + reCAPTCHA Enterprise/Fraud Defense | 비정상 웹 클라이언트와 토큰 재사용 요청 차단 |
+| 입금 알림 수집기 | Android Flutter 앱 | 1급 관리자 전용 로그인, 지정 은행 앱 알림의 로컬 감지·표시 |
 
-- 학생: 이메일·Google·GitHub 로그인/회원가입, 잔액 확인, 카메라 QR 결제, 충전·환불 신청, 거래 내역, 개인 설정
-- 부스: 금액·상품명을 포함한 결제 QR 생성, 실시간 누적 매출, 거래 내역
-- 관리자: 운영 시간, 전체 공지, 결제·충전·환불 사용 여부, 결제 한도, 신청 승인, 계정·거래 현황
-- 입금 확인 담당자: 자동 수집 실패·예외 충전 건을 은행 거래내역과 대조해 전용 화면에서 확정
-- 보안: Firebase Authentication 재인증, 역할 기반 Firestore Rules, 원자적 결제, 거래 원장 수정·삭제 차단
-- 반응형 UI: 휴대전화·태블릿·PC 지원
+> 실제 은행 송금·계좌이체는 사이트가 자동 실행하지 않습니다. 입금 확인 담당자가 실제 은행 거래내역을 대조한 뒤 포인트를 지급합니다.
+>
+> Android 수집기는 현재 **입금 알림을 기기에 기록하는 단계**까지만 구현되어 있다. 알림을 서버로 보내 자동 충전하는 기능은 `collector` Custom Claim, 등록 기기 공개키·서명, 허용 은행 앱 목록을 모두 갖춘 뒤에만 활성화할 수 있다.
 
-## 폴더 구조
+## 2. 접속 주소와 계정 등급
 
-- `frontend/index.html`: 로그인 후 역할별 주요 메뉴로 이동하는 홈 페이지
-- `frontend/about.html`: 운영 담당자, 환전소, 이용약관 및 개인정보 수집 안내 페이지
-- `frontend/wallet.html`: 학생 지갑 페이지
-- `frontend/payment.html`: QR 결제 페이지
-- `frontend/history.html`: 거래 내역 페이지
-- `frontend/settings.html`: 사용자 정보·설정 페이지
-- `frontend/booth.html`: 상점 상품·가격 등록 및 임시 주문 QR 페이지
-- `frontend/admin.html`: 1급 관리자용 계정 권한·운영 관리 페이지
-- `frontend/points.html`: 2급 관리자 이상 포인트 조절 페이지
-- `frontend/topup.html`: 학생용 고유 금액 자동 계좌 충전 신청 페이지
-- `frontend/deposit.html`: 입금 확인 담당자 전용 보류 충전 확인 페이지
-- `functions/`: Blaze Cloud Functions — 고유 입금 금액 발급·수집기 알림 검증·원자적 포인트 지급
-- `collector-android/`: 학생회 수신 기기에만 설치하는 Android 은행 알림 수집기
-- `frontend/js/`: 브라우저 JavaScript·JSX와 Vite 설정
-- `frontend/css/`: 화면 스타일
-- `scripts/`: 브라우저에 배포되지 않는 Node.js 관리자 도구
-- `dist/`: production build 결과(GitHub Pages 배포 대상)
+### 주요 주소
 
-이용약관과 개인정보 수집·이용 안내, 담당자 이메일과 환전소 위치는 `frontend/about.html`의 템플릿에서 관리합니다.
+- 홈: <https://bokseong.github.io/bank/>
+- 관리자: `admin.html`
+- 포인트 충전: `points.html`
+- 입금 확인: `deposit.html`
+- 상점 관리: `booth.html`
+- 거래 내역: `history.html`
+- 내 정보·설정: `settings.html`
 
-이메일이 검증된 `github.jwastro09@gmail.com` 계정은 최상위 관리자로 처리되며, 최초 로그인 시 관리자 프로필이 자동 생성됩니다.
+### 등급별 권한
 
-## 1. Firebase 최초 설정
+| 등급 | 가능한 작업 |
+| --- | --- |
+| 일반회원 | QR 결제, 충전 신청, 자신의 거래 내역 조회, 결제 건 환불·취소 요청 또는 동의 |
+| 상점 | 상품·가격 등록, 주문 QR 생성, 자신의 거래 내역 조회, 결제 건 환불·취소 요청 또는 동의 |
+| 2급 관리자 | 일반회원·상점 포인트 충전 |
+| 1급 관리자 | 계정 권한·상태 관리, 운영 설정, 모든 등급 대상 포인트 충전 |
+| 입금 확인 담당자 | 충전 요청 조회, 실제 입금 대조 후 포인트 지급 |
 
-1. [Firebase Console](https://console.firebase.google.com/project/hs-bokseong/overview)에서 `hs-bokseong` 프로젝트를 엽니다.
-2. **Authentication → Sign-in method**에서 `Email/Password`, `Google`, `GitHub`를 활성화하고 **Settings → Authorized domains**에 `bokseong.github.io`를 추가합니다.
-3. **Firestore Database**를 Production mode로 생성합니다. 위치는 한 번 정하면 변경할 수 없으므로 학교와 가까운 위치를 선택합니다.
-4. **Project settings → Service accounts → Generate new private key**에서 관리자 계정 준비용 JSON을 내려받습니다. 저장소 안에 넣거나 Git에 올리지 마세요.
-5. Node.js 22 이상과 Firebase CLI를 준비합니다.
+절대 관리자 계정은 `github.jwastro09@gmail.com`입니다. 이 계정은 일반 운영 계정과 분리해 관리합니다.
 
-## 2. 설치 및 관리자·부스 계정 준비
+## 3. 축제 전 준비
 
-PowerShell에서 실행합니다.
+### 3.1 Firebase Console 확인
 
-```powershell
-git clone https://github.com/bokseong/bank.git
-Set-Location .\bank
-npm install
-Copy-Item .\users.example.json .\users.json
-```
+1. Firebase Authentication에서 이메일/비밀번호, Google, GitHub 로그인 제공업체가 활성화되어 있는지 확인한다.
+2. Authentication → 설정 → 승인된 도메인에 `bokseong.github.io`가 있는지 확인한다.
+3. Firestore와 Realtime Database가 활성화되어 있는지 확인한다.
+4. App Check에서 웹 앱 `bank`가 Fraud Defense(reCAPTCHA Enterprise) 제공업체로 등록되어 있는지 확인한다.
+5. App Check의 Firestore, Realtime Database, Authentication 적용 상태와 요청 지표를 확인한다.
+6. Android 앱 `kr.hsbokseong.bank_collector`는 App Check에 별도로 등록한다. 개발용 debug APK는 Debug provider, 정식 release APK는 Play Integrity provider를 사용한다.
+7. Google 로그인에는 Android 앱의 패키지명과 debug/release 서명키 SHA-1·SHA-256이 Firebase 프로젝트 설정에 등록되어 있어야 한다. 지문을 추가한 경우 `android/app/google-services.json`을 다시 내려받아 교체한다.
 
-`users.json`의 이메일·임시 비밀번호·이름을 실제 값으로 바꿉니다. 그다음 내려받은 Service Account JSON 경로를 현재 PowerShell 세션에만 지정합니다.
+### 3.2 Functions App Check 확인
 
-```powershell
-$env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\안전한경로\hs-bokseong-service-account.json'
-npm run provision -- .\users.json
-Remove-Item Env:\GOOGLE_APPLICATION_CREDENTIALS
-```
+충전과 입금 확인 함수는 App Check 토큰이 없거나 유효하지 않으면 실행되지 않도록 구성되어 있다.
 
-`users.json`은 `.gitignore`에 의해 저장소에 올라가지 않습니다. 계정 준비가 끝나면 안전하게 별도 보관하거나 삭제하세요. 최초 로그인 후 임시 비밀번호를 변경하는 운영 절차를 권장합니다.
-
-`provision` 명령은 `admin1`, `admin2`, `shop`, `member`, `deposit_checker` 계정과 `settings/config` 기본 운영 설정을 생성합니다. 신규 가입자는 `member`로 신청하며 1급 관리자가 계정 권한을 변경할 수 있습니다. `deposit_checker`는 입금 대조만 할 수 있는 전용 역할이며 결제·포인트 조절·계정 관리 권한은 없습니다. 상점은 상품을 등록해 5분간 한 번만 사용할 수 있는 주문 QR을 만들고, 결제 시 주문서와 잔액이 함께 검증됩니다.
-
-## 3. 테스트 및 GitHub Pages 배포
-
-```powershell
-npm test
-npm run build
-```
-
-`main` 브랜치에 push하면 `.github/workflows/deploy-pages.yml`이 테스트와 production build를 수행한 뒤 GitHub Pages에 자동 배포합니다.
-
-서비스 주소:
+Functions 런타임 서비스 계정에는 아래 역할이 필요하다.
 
 ```text
-https://bokseong.github.io/bank/
+Firebase App Check Token Verifier
 ```
 
-Firebase Console의 **Authentication → Settings → Authorized domains**에 `bokseong.github.io`를 추가해야 GitHub Pages에서 로그인이 정상 작동합니다.
+경로:
 
-Firestore Rules와 indexes를 변경했을 때만 별도로 실행합니다.
+```text
+Google Cloud Console → IAM 및 관리자 → IAM
+→ Functions 2세대 런타임 서비스 계정 선택
+→ 역할 추가 → Firebase App Check Token Verifier
+```
+
+### 3.3 계정 발급과 권한 배정
+
+1. 운영자는 일반 로그인 화면에서 최초 로그인한 계정의 이름·학번을 확인한다.
+2. 1급 관리자가 관리자 화면의 계정 표에서 등급을 지정한다.
+3. 입금 확인 기기를 사용할 계정에는 반드시 `입금 확인 담당자` 등급만 부여한다.
+4. 상점 기기에는 상점 계정을 사용하고, 개인 계정과 공유하지 않는다.
+5. 축제 종료 뒤에는 입금 확인 담당자·상점 계정의 권한을 회수하거나 정지한다.
+
+역할값은 새 데이터에서 `member`, `shop`, `admin2`, `admin1`, `deposit_checker`만 사용한다. 기존의 `student`, `booth`, `admin` 값은 이전 버전 호환용이다. 특히 Android 수집기는 현재 `admin1`만 로그인 허용하므로, 기존 최고관리자 문서의 `role: "admin"`은 정식 운영 전에 `role: "admin1"`으로 이전한다.
+
+## 4. 행사 당일 운영
+
+### 4.1 상점 주문·결제
+
+1. 상점 계정으로 로그인한다.
+2. 상점 관리 페이지에서 상품 이름, 가격, 판매 상태를 등록한다.
+3. 판매할 상품과 수량을 선택해 임시 주문 QR을 만든다.
+4. 일반회원이 홈 또는 QR 결제 페이지에서 QR을 촬영한다.
+5. 포인트가 회원 계정에서 차감되고 상점 계정에 지급되면 거래 내역을 확인한다.
+
+QR은 주문별로 유효 시간이 있으며, 이미 결제된 QR은 다시 사용할 수 없다.
+
+### 4.2 포인트 충전
+
+#### 관리자 수기 충전
+
+- 1급 관리자는 일반회원, 상점, 2급 관리자, 1급 관리자에게 충전할 수 있다.
+- 2급 관리자는 일반회원과 상점에게만 충전할 수 있다.
+- 충전 전 실제 현금 수납 또는 입금 여부를 반드시 확인한다.
+- 충전 사유를 기록한다.
+
+#### 입금 확인 기반 충전
+
+1. 일반회원이 충전 페이지에서 `1,000P`, `2,000P`, `3,000P`, `5,000P`, `10,000P` 중 하나를 선택한다.
+2. 시스템은 본인확인용 두 자리 난수(50~99)를 포함해 실제 송금액을 발급한다. 실제 송금액은 충전 포인트보다 **1~50원 적다**.
+3. 학생은 안내된 실제 송금액을 운영 계좌에 송금한다. 10,000P 초과 금액 또는 현금 충전은 기부 부스에 문의한다.
+4. 발급 안내는 1분만 유효하다. 만료되었거나 다른 금액을 입금한 경우 운영자가 임의 지급하지 말고 기부 부스에서 처리한다.
+5. 입금 확인 담당자가 `입금 확인` 페이지에서 실제 은행 거래내역의 금액·시각과 발급 주문을 대조한다.
+6. 일치할 때만 `입금 확인·지급`을 실행한다.
+
+입금 확인은 되돌리기 어렵다. 입금자명만으로 판단하지 말고 **입금 금액, 시각, 실제 은행 거래내역**을 함께 대조한다.
+
+## 5. 결제 환불·결제 취소
+
+결제 건 환불·취소는 포인트를 되돌리는 처리이므로, 상점 또는 일반회원 한쪽만으로 완료할 수 없다.
+
+### 처리 순서
+
+1. 결제한 일반회원 또는 해당 상점이 거래 내역에서 `환불 요청` 또는 `결제 취소 요청`을 누른다.
+2. 요청자는 자동으로 동의 상태가 된다.
+3. 상대방은 같은 결제 내역에서 `동의` 또는 `거절`을 선택한다.
+4. 상대방이 동의하면 즉시 포인트가 처리된다. 1급 관리자 승인은 필요하지 않다.
+5. 승인 시 일반회원 포인트는 복원되고 상점 포인트는 같은 금액만큼 차감되며, 취소 거래 기록이 남는다.
+
+### 운영 원칙
+
+- 상점 잔액이 부족하면 환불·취소를 승인할 수 없다.
+- 상대방이 거절하거나 관리자가 반려하면 포인트는 움직이지 않는다.
+- 결제 한 건에는 하나의 환불·취소 요청만 만들 수 있다.
+- 기존에 생성된 과거 형식의 취소 요청은 새 상호 동의 절차와 분리되어 있으므로 단독 승인하지 않는다.
+
+### 현금 환급·출금
+
+현금 환급·출금·계좌 환급은 운영하지 않는다. 거래 취소는 실제 현금 이동이 아니라, 결제 당사자 상호 동의에 따른 **포인트 반환**만 수행한다.
+
+## 6. 공지·운영 설정
+
+1급 관리자는 관리자 화면에서 다음을 조절할 수 있다.
+
+- 사이트 운영 여부
+- 결제 허용 여부
+- 충전 신청 허용 여부
+- 자동 충전 사용 여부
+- 결제 최소·최대 금액
+- 1회 충전 한도
+- QR 유효 시간
+- 운영 계좌 표시명·계좌번호
+- 전체 공지
+
+긴급 공지는 운영 설정의 전체 공지를 사용한다. 저장 후 연결된 클라이언트에 실시간으로 표시되도록 구성되어 있다.
+
+## 7. 보안 운영 원칙
+
+- 관리자 계정과 상점 계정의 비밀번호를 공유하지 않는다.
+- 공용 기기에서는 사용 후 반드시 로그아웃한다.
+- 계정 정지가 필요한 경우 관리자 화면에서 즉시 상태를 `정지`로 바꾼다.
+- App Check 오류가 발생하면 먼저 Firebase Console에서 앱 등록, 허용 도메인, reCAPTCHA Enterprise 키를 확인한다.
+- Functions는 `enforceAppCheck: true`, `consumeAppCheckToken: true`를 사용한다.
+- 소비된 App Check 토큰은 함수에서 거절하도록 구성되어 있다.
+- Functions 로그, Firestore 거래 기록, Realtime Database 운영 로그를 삭제하지 않는다.
+- 실제 계좌번호, 환급 계좌정보, 개인식별정보를 스크린샷·공개 채팅에 올리지 않는다.
+- Android Debug token은 비밀값이다. 소스 코드·GitHub·공지문에 저장하지 않으며, 개발 종료 후 Firebase App Check에서 삭제한다.
+- 정식 Android APK에는 Debug provider를 사용하지 않는다. Play Integrity 요청이 App Check 지표에서 정상 수신되는 것을 확인한 뒤 Authentication 강제를 유지한다.
+
+## 8. Android 입금 수집기 운영과 정식 배포
+
+프로젝트 위치:
 
 ```powershell
-npx firebase-tools login
-npm run deploy:firestore
+Set-Location C:\Users\user\Desktop\programming\bank_apk\bank_collector
 ```
 
-## 자동 계좌 충전 수집기
+### 개발용 실제 휴대폰 테스트
 
-이 기능은 PG·은행 API 없이 학생회 운영 계좌의 **은행 앱 입금 알림**을 전용 Android 기기에서 읽어 자동 대조합니다. 학생은 입금자명을 바꾸지 않고, 사이트가 안내하는 정확한 고유 금액만 송금합니다. 실제 입금액과 포인트가 같도록 고유 금액 전체를 포인트로 지급합니다.
+1. `flutter run` 또는 debug APK를 설치한다.
+2. 최초 실행 로그에 출력되는 `Firebase App Check debug token`을 Firebase Console → App Check → Android 앱 → **Manage debug tokens**에 한 번만 등록한다.
+3. Android 앱은 Firebase Authentication 로그인 뒤 Firestore `users/{uid}`의 `role: "admin1"`, `status: "active"`를 확인한다. 조건이 맞지 않으면 즉시 로그아웃한다.
+4. Google 로그인은 앱 시작 때 설정된 Web OAuth `serverClientId`를 사용한다. GitHub 로그인은 Firebase Authentication의 GitHub 제공업체와 `https://hs-bokseong.firebaseapp.com/__/auth/handler` callback URL이 필요하다.
 
-1. Firebase 프로젝트가 Blaze 요금제인지 확인합니다.
-2. 이 저장소에는 이미 `firebase.json`이 있으므로 `firebase init`을 다시 실행하지 마세요. Functions 의존성을 설치하고 Rules·RTDB Rules와 함께 배포합니다.
+### 정식 release APK
+
+1. release 서명키의 SHA-1 및 SHA-256을 Firebase Console → 프로젝트 설정 → Android 앱에 등록한다.
+2. 최신 `google-services.json`을 `android/app/google-services.json`에 교체한다.
+3. Firebase Console → App Check에서 Android 앱에 Play Integrity provider를 등록한다.
+4. release APK를 만든다.
 
 ```powershell
-Set-Location .\functions
-npm install
-Set-Location ..
-npx firebase-tools deploy --only functions,firestore:rules,firestore:indexes,database
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+C:\Users\user\Desktop\programming\bank_apk\flutter\bin\flutter.bat build apk --release
 ```
 
-3. `collector-android\app\google-services.json`에 Firebase Console에서 내려받은 Android 앱 설정 파일을 넣습니다. 이 파일은 저장소에 올리지 않습니다.
-4. Android 프로젝트를 열어 전용 운영 기기에 설치합니다. 앱에는 1급 관리자가 `입금 확인 담당자`로 지정한 전용 Firebase 계정으로 로그인하고, 실제 은행 앱의 package name만 등록한 뒤 Android 설정에서 **알림 접근 권한**을 허용합니다.
-5. 앱에 표시된 `기기 ID`와 `공개키(SPKI)`를 복사하고, Service Account 환경을 설정한 PowerShell에서 수집기를 등록합니다.
+생성 파일:
+
+```text
+build\app\outputs\flutter-apk\app-release.apk
+```
+
+서명키 `.jks`, 비밀번호, Debug token, `google-services.json`은 GitHub에 올리지 않는다.
+
+## 9. 코드 변경과 GitHub Pages 배포
+
+작업 폴더:
 
 ```powershell
-$env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\안전한경로\hs-bokseong-service-account.json'
-node .\scripts\register-collector.mjs 'collector@example.com' 'ANDROID_ID' 'SPKI_BASE64' '은행앱.package.name'
+Set-Location C:\Users\user\Desktop\programming\bank
 ```
 
-6. 수집기 앱에서 로그아웃 후 재로그인해 권한 토큰을 갱신합니다. 관리자 페이지에서 자동 계좌 충전과 계좌 안내를 설정한 뒤, 실제 은행 앱 알림으로 최소 20회 이상 소액 입금 시험을 합니다.
-
-자동 확인이 실패하거나 은행 알림을 파싱하지 못한 경우, `입금 확인 담당자`가 **입금 확인** 메뉴에서 은행 거래내역의 금액을 발급 금액과 대조한 후 처리합니다. 이 확정은 되돌릴 수 없고 Functions·Firestore·RTDB 감사 로그에 남습니다.
-
-은행별 알림 문구는 다르므로 `collector-android/.../BankNotificationListener.kt`의 `parseAmount`, `parseSender`는 실제 수신된 알림 형식으로 검증·조정해야 합니다. 알림에 금액이 없거나 파싱하지 못한 건은 자동 충전되지 않습니다.
-
-QR 카메라 인식은 보안 연결에서만 사용할 수 있으므로 실제 기기 점검은 GitHub Pages의 HTTPS 주소에서 진행해야 합니다. 브라우저의 카메라 권한 요청을 허용해야 합니다.
-
-로컬 실행:
+로컬 확인:
 
 ```powershell
-npm run dev
+npm.cmd test
+npm.cmd run build
+npm.cmd --prefix functions run lint
 ```
 
-## 실제 행사 전 필수 점검
+Functions 배포:
 
-1. 관리자 계정 발급 → 로그인 → 충전 승인 → 부스 QR 생성 → 학생 카메라 인식 → 비밀번호 확인 → 결제 → 환불 신청 흐름을 끝까지 확인합니다.
-2. 학생·부스 계정에서 다른 사용자의 잔액이나 거래를 읽거나 수정할 수 없는지 확인합니다.
-3. 전산실 태블릿과 학교 Wi-Fi에서 QR 인식 및 결제가 되는지 확인합니다.
-4. 결제 직후 학생 화면과 부스 화면의 잔액이 동시에 바뀌는지 확인합니다.
-5. 충전·환불은 현금 수납 기록과 반드시 대조하고, 관리자 2인이 함께 승인하도록 운영합니다.
-6. 인터넷 장애에 대비한 종이 쿠폰 또는 수기 대장을 준비합니다.
-7. 행사 종료 후 미사용 잔액 환불, 부스 정산, 계정·개인정보 보존 기간을 학교 규정에 따라 처리합니다.
+```powershell
+npx.cmd firebase-tools@15.36.0 deploy --only functions --project hs-bokseong
+```
 
-QR 결제는 로그인한 활성 계정의 잔액과 주문 상태를 Firestore Transaction으로 확인한 뒤 처리합니다. 상점 계정은 결제자가 될 수 없으며, 일반회원과 관리자 계정만 QR 결제를 이용할 수 있습니다.
+Firestore 보안 규칙 배포:
 
-## 데이터 구조
+```powershell
+npx.cmd firebase-tools@15.36.0 deploy --only firestore:rules --project hs-bokseong
+```
 
-- `users/{uid}`: 역할, 상태, 잔액
-- `requests/{id}`: 충전·환불 신청 및 처리 상태
-- `transactions/{id}`: 결제·충전·환불 원장(생성 후 수정·삭제 불가)
+GitHub Pages 반영은 GitHub 저장소 `main` 브랜치에 푸시하면 Actions 워크플로로 진행된다. 푸시 전에는 반드시 최신 원격 변경을 먼저 가져온다.
 
-Firebase 웹 `apiKey`는 클라이언트 식별 설정이며 비밀번호가 아닙니다. 실제 접근 통제는 Authentication과 `firestore.rules`가 담당합니다. Service Account 개인 키는 절대로 웹 코드나 저장소에 포함하면 안 됩니다.
+```powershell
+Set-Location C:\Users\user\Documents\ChatGPT\학교\bank-remote-inspect
+git pull --ff-only
+git status -sb
+git add <변경 파일>
+git commit -m "설명"
+git push origin main
+```
+
+## 10. 자주 발생하는 문제
+
+### `npm.ps1` 실행 정책 오류
+
+Windows PowerShell에서는 `npm` 대신 아래처럼 실행한다.
+
+```powershell
+npm.cmd run build
+npx.cmd firebase-tools@15.36.0 deploy --only functions --project hs-bokseong
+```
+
+### Functions 배포 중 HTTP 409
+
+```text
+unable to queue the operation
+```
+
+같은 함수의 기존 배포가 진행 중일 때 발생한다. 여러 터미널에서 동시 배포하지 말고 잠시 기다린 뒤 한 번만 재시도한다.
+
+```powershell
+npx.cmd firebase-tools@15.36.0 functions:list --project hs-bokseong
+npx.cmd firebase-tools@15.36.0 deploy --only functions --project hs-bokseong
+```
+
+### App Check 400 또는 401
+
+다음을 순서대로 확인한다.
+
+1. `bokseong.github.io`가 Authentication 승인된 도메인인지 확인한다.
+2. Firebase App Check의 웹 앱이 Fraud Defense(reCAPTCHA Enterprise)로 등록되었는지 확인한다.
+3. 프런트엔드의 공개 사이트 키가 App Check 등록 키와 같은지 확인한다.
+4. Functions 런타임 서비스 계정에 `Firebase App Check Token Verifier` 역할이 있는지 확인한다.
+5. 브라우저 캐시를 지우거나 새로고침 후 다시 로그인한다.
+
+### Android 앱에서 `Firebase App Check token is invalid`
+
+1. debug APK인지 release APK인지 먼저 확인한다.
+2. debug APK는 휴대폰 로그의 Debug token을 **해당 Android App Check 앱**에 등록했는지 확인한다.
+3. token 등록 후 앱을 완전히 종료하고 다시 실행한다.
+4. release APK는 Debug token을 쓰지 않는다. Android 앱에 Play Integrity provider를 등록하고 release 서명 SHA-1·SHA-256과 최신 `google-services.json`을 확인한다.
+
+### Android 앱이 로그인 직후 로그아웃됨
+
+Firebase Auth 로그에 사용자 UID가 나타난 뒤 sign-out 이벤트가 바로 발생하면 인증 실패가 아니라 권한 판정 실패다. Firestore `users/{uid}`의 값을 확인한다.
+
+```text
+role: "admin1"
+status: "active"
+```
+
+### Android Google 로그인 `serverClientId must be provided`
+
+`GoogleSignIn.instance.initialize(serverClientId: ...)`에 Firebase 프로젝트의 Web OAuth Client ID가 설정되어 있는지, Android 앱의 SHA-1·패키지명·`google-services.json`이 같은 Firebase 프로젝트를 가리키는지 확인한다.
+
+## 11. 축제 종료 절차
+
+1. 관리자 설정에서 결제와 충전 신청을 먼저 중지한다.
+2. 미처리 입금 확인 요청과 환불·취소 요청을 모두 확인한다.
+3. 상점별 거래 기록과 포인트 잔액을 정산한다.
+4. 거래 기록과 운영 로그를 별도로 보관한다.
+5. 입금 확인 담당자와 상점 계정을 정지하거나 권한을 회수한다.
+6. 운영 계좌의 실제 거래내역과 시스템 총 충전·포인트 반환 기록을 대조한다.
