@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp, AggregateField } from "firebase-admin/firestore";
 import { getDatabase } from "firebase-admin/database";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
@@ -63,6 +63,24 @@ async function postReservationCallback(checkout, transactionId) {
   const response = await fetch(RESERVATION_CALLBACK_URL, { method: "POST", headers: { "content-type": "application/json", "x-reservation-timestamp": timestamp, "x-reservation-signature": signedPayload(reservationPaymentSecret.value(), timestamp, payload) }, body: payload });
   if (!response.ok) throw new Error(`reservation callback failed: ${response.status}`);
 }
+
+// Only first-level administrators may see the reservation-system merchant's settlement figures.
+export const getStudentCouncilSummary = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
+  await requireActiveRole(request, ["admin1"]);
+  const merchantRef = db.doc(`users/${RESERVATION_MERCHANT_UID}`);
+  const payments = db.collection("transactions").where("type", "==", "reservation_payment");
+  const [merchantSnap, aggregateSnap] = await Promise.all([
+    merchantRef.get(),
+    payments.aggregate({ total: AggregateField.sum("amount"), count: AggregateField.count() }).get(),
+  ]);
+  const aggregate = aggregateSnap.data();
+  return {
+    reservationPaymentTotal: Number(aggregate.total || 0),
+    reservationPaymentCount: Number(aggregate.count || 0),
+    studentCouncilBalance: Number(merchantSnap.exists ? merchantSnap.data().balance || 0 : 0),
+    merchantReady: merchantSnap.exists,
+  };
+});
 
 // This endpoint is server-to-server only. A reservation is never trusted merely because a browser supplied an amount.
 export const createReservationCheckout = onRequest({ region: REGION, secrets: [reservationPaymentSecret], cors: false }, async (req, res) => {

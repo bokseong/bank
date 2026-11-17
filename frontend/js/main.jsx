@@ -1297,6 +1297,26 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
     </section>
   );
 }
+function StudentCouncilSummary() {
+  const [summary, setSummary] = useState(null), [error, setError] = useState(""), [loading, setLoading] = useState(true);
+  const load = async () => {
+    setLoading(true); setError("");
+    try { setSummary((await httpsCallable(functions, "getStudentCouncilSummary")()).data); }
+    catch (e) { setError(friendlyError(e)); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  return <section className="panel">
+    <div className="section-heading"><div><h2>학생회 예약 결제 정산</h2><p className="hint">먹거리 예약 시스템을 통해 학생회 계정에 적립된 포인트입니다.</p></div><button className="secondary" type="button" onClick={load} disabled={loading}><RefreshCw /> {loading ? "불러오는 중…" : "새로고침"}</button></div>
+    {error ? <p className="error">{error}</p> : <div className="stats">
+      <article><span>누적 예약 결제</span><strong>{summary ? won(summary.reservationPaymentTotal) : "-"}</strong></article>
+      <article><span>현재 학생회 보유</span><strong>{summary ? won(summary.studentCouncilBalance) : "-"}</strong></article>
+      <article><span>결제 건수</span><strong>{summary ? `${summary.reservationPaymentCount}건` : "-"}</strong></article>
+    </div>}
+    {summary && !summary.merchantReady && <p className="hint">아직 예약 결제가 없어 학생회 예약 계정이 만들어지지 않았습니다.</p>}
+  </section>;
+}
+
 function Admin({ config }) {
   const [users, setUsers] = useState([]),
     [form, setForm] = useState(config),
@@ -1350,6 +1370,7 @@ function Admin({ config }) {
         </article>
         <article><span>잔여 포인트</span><strong>축제 종료 후 기부</strong></article>
       </section>
+      <StudentCouncilSummary />
       <form className="panel admin-settings" onSubmit={save}>
         <h2>사이트 운영 설정</h2>
         <label>
