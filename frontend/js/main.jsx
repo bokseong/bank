@@ -67,7 +67,6 @@ const base = import.meta.env.BASE_URL;
 const googleProvider = new GoogleAuthProvider(),
   githubProvider = new GithubAuthProvider();
 const ROOT_ADMIN_EMAIL = "github.jwastro09@gmail.com";
-const THEME_STORAGE_KEY = "bokseong-festival-bank-theme";
 const AUTO_TOPUP_PACKAGES = [1000, 2000, 3000, 5000, 10000];
 const isRootAdmin = (user) =>
   user?.emailVerified && user.email?.toLowerCase() === ROOT_ADMIN_EMAIL;
@@ -94,16 +93,6 @@ async function writeOperationalLog(event, detail = "") {
   const uid = auth.currentUser?.uid;
   if (!uid) return;
   try { await push(ref(rtdb, `operationalLogs/${uid}`), { event: String(event).slice(0, 40), detail: String(detail).slice(0, 160), at: rtdbServerTimestamp() }); } catch { /* 로그 실패는 결제 흐름을 중단하지 않습니다. */ }
-}
-function useDarkMode() {
-  const [darkMode, setDarkMode] = useState(
-    () => localStorage.getItem(THEME_STORAGE_KEY) === "dark",
-  );
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark-theme", darkMode);
-    localStorage.setItem(THEME_STORAGE_KEY, darkMode ? "dark" : "light");
-  }, [darkMode]);
-  return [darkMode, setDarkMode];
 }
 function requestProfileDetails() {
   alert("처음 로그인한 계정입니다. 이름과 학번을 입력해 계정 정보를 생성해 주세요.");
@@ -437,7 +426,12 @@ function HomeDashboard({ profile, config }) {
         ? [{ href: "deposit.html", icon: ClipboardCheck, title: "입금 확인", description: "은행 거래내역을 대조하여 보류 충전을 확정합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
       : profile.role === "shop"
         ? [{ href: "booth.html", icon: QrCode, title: "상점 관리", description: "상품·가격을 등록하고 주문 QR을 만듭니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "상점 거래 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }]
-        : [{ href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 임시 주문 QR을 스캔합니다." }, { href: "history.html", icon: History, title: "결제 페이지", description: "내 결제 기록을 조회합니다." }, { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." }];
+        : [
+            { href: "payment.html", icon: QrCode, title: "QR 결제", description: "상점의 임시 주문 QR을 스캔합니다." },
+            { href: "topup.html", icon: Banknote, title: "포인트 충전", description: "고유 입금 금액을 발급받아 본인 계정에 충전합니다." },
+            { href: "history.html", icon: History, title: "결제 페이지", description: "내 결제 기록을 조회합니다." },
+            { href: "settings.html", icon: UserRound, title: "내 정보 조회", description: "내 계정 정보를 확인합니다." },
+          ];
   return (
     <>
       <section className="home-welcome">
@@ -1074,8 +1068,8 @@ function AutoTopUp({ profile, config }) {
   const expired = order?.expiresAt?.toMillis?.() && order.expiresAt.toMillis() < now;
   return <>
     <section className="panel auto-topup">
-      <h2>자동 계좌 충전</h2>
-      <p>입금자명을 바꾸지 않아도 됩니다. 시스템이 발급한 <b>정확한 입금 금액</b>을 학생회 계좌로 송금하면, 운영 기기의 은행 입금 알림과 자동으로 대조해 선택한 포인트를 지급합니다.</p>
+      <h2>일반회원 자동 계좌 충전</h2>
+      <p><b>{profile.name}</b> 본인 계정에만 충전됩니다. 입금자명을 바꾸지 않아도 됩니다. 시스템이 발급한 <b>정확한 입금 금액</b>을 학생회 계좌로 송금하면, 운영 기기의 은행 입금 알림과 자동으로 대조해 선택한 포인트를 지급합니다.</p>
       {!enabled && <p className="error">자동 계좌 충전이 아직 준비되지 않았습니다. 운영 기기 연결 상태를 관리자에게 확인해 주세요.</p>}
       <form onSubmit={createOrder}>
         <label>충전 포인트<select disabled={!enabled || busy} value={amount} onChange={(e) => setAmount(e.target.value)}>{AUTO_TOPUP_PACKAGES.map((points) => <option key={points} value={points}>{points.toLocaleString("ko-KR")}P</option>)}</select></label>
@@ -1200,7 +1194,7 @@ function CancellationReviewList() {
   const pending = items.filter((x) => x.status === "awaiting_admin" && x.payerConsent === true && x.shopConsent === true);
   return <section className="panel refund-review"><h2>환불·결제 취소 최종 승인</h2><p className="hint">일반회원과 상점의 동의가 모두 완료된 요청만 승인할 수 있습니다.</p><div className="list">{!pending.length && <div className="empty">양측 동의가 완료된 요청이 없습니다.</div>}{pending.map((x) => <div className="row admin-row" key={x.id}><Banknote /><div><b>{x.shopName} · {won(x.amount)}</b><small>{x.kind === "refund" ? "환불" : "결제 취소"} · 양측 동의 완료 · {x.memo || "상품 정보 없음"}</small></div><button onClick={() => finish(x.id, true)}>최종 승인</button><button className="danger" onClick={() => finish(x.id, false)}>반려</button></div>)}</div>{msg && <p className="notice">{msg}</p>}</section>;
 }
-function UserSettings({ profile, config, darkMode, setDarkMode }) {
+function UserSettings({ profile }) {
   const [msg, setMsg] = useState(""),
     [withdrawOpen, setWithdrawOpen] = useState(false),
     [password, setPassword] = useState(""),
@@ -1266,13 +1260,6 @@ function UserSettings({ profile, config, darkMode, setDarkMode }) {
           <dd>{won(profile.balance)}</dd>
         </div>
       </dl>
-      <label className="switch-row">
-        <div>
-          <b>다크 모드</b>
-          <small>어두운 화면 테마를 이 기기에 적용합니다.</small>
-        </div>
-        <input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />
-      </label>
       {msg && <p className="notice">{msg}</p>}
       {!isRootAdmin(auth.currentUser) && (
         <section className="withdraw-section">
@@ -1476,12 +1463,15 @@ function Admin({ config }) {
   );
 }
 function App() {
-  const [darkMode, setDarkMode] = useDarkMode();
+  useEffect(() => {
+    document.documentElement.classList.remove("dark-theme");
+    localStorage.removeItem("bokseong-festival-bank-theme");
+  }, []);
   const page = location.pathname.split("/").pop() || "index.html";
   if (page === "about.html") return <About />;
-  return <AuthenticatedApp darkMode={darkMode} setDarkMode={setDarkMode} />;
+  return <AuthenticatedApp />;
 }
-function AuthenticatedApp({ darkMode, setDarkMode }) {
+function AuthenticatedApp() {
   const { loading, user, profile, config, error } = useSession();
   const page = location.pathname.split("/").pop() || "index.html";
   if (loading) return <div className="loading">불러오는 중…</div>;
@@ -1525,8 +1515,7 @@ function AuthenticatedApp({ darkMode, setDarkMode }) {
   if (page === "index.html") content = <HomeDashboard profile={profile} config={config} />;
   else if (page === "history.html")
     content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop" && !isDepositChecker(profile)} canCancel={["member", "shop"].includes(profile.role)} />;
-  else if (page === "settings.html")
-    content = <UserSettings profile={profile} config={config} darkMode={darkMode} setDarkMode={setDarkMode} />;
+  else if (page === "settings.html") content = <UserSettings profile={profile} />;
   else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "topup.html") content = profile.role === "member" ? <AutoTopUp profile={profile} config={config} /> : <AccessDenied />;

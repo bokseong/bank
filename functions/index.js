@@ -155,6 +155,10 @@ export const payReservationCheckout = onCall({ region: REGION, enforceAppCheck: 
 export const createTopUpOrder = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
   rejectReplayedAppCheck(request);
   requireSignedIn(request);
+  // 일반회원 충전은 호출자의 계정에만 귀속한다. 대상 UID는 입력으로 받지 않는다.
+  if (Object.prototype.hasOwnProperty.call(request.data || {}, "uid")) {
+    throw new HttpsError("invalid-argument", "일반회원 충전은 본인 계정에만 신청할 수 있습니다.");
+  }
   const requestedPoints = positiveInteger(request.data?.requestedPoints, "충전 포인트");
   const [userSnap, configSnap] = await Promise.all([db.doc(`users/${request.auth.uid}`).get(), db.doc("settings/config").get()]);
   if (!userSnap.exists || userSnap.data().status !== "active") throw new HttpsError("permission-denied", "사용할 수 없는 계정입니다.");
