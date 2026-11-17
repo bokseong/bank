@@ -61,7 +61,7 @@ const roles = {
     admin2: "2급 관리자",
     deposit_checker: "입금 확인 담당자",
   },
-  types = { payment: "결제", topup: "충전", refund: "환불", cancellation: "결제 취소", adjustment: "포인트 조절" },
+  types = { payment: "결제", reservation_payment: "예약 결제", topup: "충전", refund: "환불", cancellation: "결제 취소", adjustment: "포인트 조절" },
   legacyRoles = { student: "member", booth: "shop", admin: "admin1" };
 const base = import.meta.env.BASE_URL;
 const googleProvider = new GoogleAuthProvider(),
@@ -809,6 +809,7 @@ function Scanner({ onRead, onClose }) {
 }
 function Pay({ profile, config }) {
   const [invoice, setInvoice] = useState(null),
+    [reservationCheckout, setReservationCheckout] = useState(null),
     [scanning, setScanning] = useState(false),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState("");
@@ -837,14 +838,28 @@ function Pay({ profile, config }) {
     const params = new URLSearchParams(location.search);
     const orderId = params.get("orderId"), shopId = params.get("shopId");
     if (orderId && shopId) void read({ orderId, shopId });
+    const checkoutId = params.get("checkout");
+    if (checkoutId) {
+      setBusy(true);
+      httpsCallable(functions, "getReservationCheckout")({ checkoutId })
+        .then((result) => { setReservationCheckout(result.data.checkout); setMsg(""); })
+        .catch((error) => setMsg(friendlyError(error)))
+        .finally(() => setBusy(false));
+    }
   }, []);
   async function pay(e) {
     e.preventDefault();
-    if (!invoice || !config.paymentsEnabled) return;
-    if (invoice.amount > profile.balance) return setMsg("잔액이 부족합니다.");
+    const payable = reservationCheckout || invoice;
+    if (!payable || !config.paymentsEnabled) return;
+    if (payable.amount > profile.balance) return setMsg("잔액이 부족합니다.");
     setBusy(true);
     setMsg("");
     try {
+      if (reservationCheckout) {
+        const result = await httpsCallable(functions, "payReservationCheckout")({ checkoutId: reservationCheckout.id });
+        location.assign(result.data.returnUrl);
+        return;
+      }
       const payerRef = doc(db, "users", profile.id), shopRef = doc(db, "users", invoice.shopUid), orderRef = doc(db, "orders", invoice.id);
       const [payer, shop, order] = await Promise.all([getDoc(payerRef), getDoc(shopRef), getDoc(orderRef)]);
       if (!payer.exists() || !shop.exists() || !order.exists() || order.data().status !== "pending") throw new Error("이미 처리되었거나 사용할 수 없는 주문입니다.");
@@ -866,14 +881,14 @@ function Pay({ profile, config }) {
   }
   return (
     <section className="panel pay">
-      <h2>QR 결제</h2>
+      <h2>{reservationCheckout ? "먹거리 예약 결제" : "QR 결제"}</h2>
       {!config.paymentsEnabled ? (
         <div className="error">현재 결제가 중지되어 있습니다.</div>
       ) : (
         <>
           {scanning ? (
             <Scanner onRead={read} onClose={() => setScanning(false)} />
-          ) : !invoice ? (
+          ) : !invoice && !reservationCheckout ? (
             <div className="scan-start">
               <Camera />
               <h3>부스의 결제 QR을 스캔하세요</h3>
@@ -886,22 +901,22 @@ function Pay({ profile, config }) {
             <form onSubmit={pay} className="invoice">
               <div className="invoice-title">
                 <span>결제 상점</span>
-                <strong>{invoice.shopName}</strong>
+                <strong>{reservationCheckout ? "복성고 먹거리 예약" : invoice.shopName}</strong>
               </div>
               <div className="invoice-amount">
                 <span>결제 금액</span>
-                <strong>{won(invoice.amount)}</strong>
+                <strong>{won((reservationCheckout || invoice).amount)}</strong>
               </div>
-              <p>상품: {invoice.productName} {invoice.quantity}개</p>
+              <p>{reservationCheckout ? `예약 메뉴: ${reservationCheckout.menuName}` : `상품: ${invoice.productName} ${invoice.quantity}개`}</p>
               <button disabled={busy}>
-                {busy ? "결제 처리 중…" : `${won(invoice.amount)} 결제`}
+                {busy ? "결제 처리 중…" : `${won((reservationCheckout || invoice).amount)} 결제`}
               </button>
               <button
                 type="button"
                 className="secondary"
-                onClick={() => setInvoice(null)}
+                onClick={() => reservationCheckout ? location.assign(`${base}index.html`) : setInvoice(null)}
               >
-                다시 스캔
+                {reservationCheckout ? "은행 홈으로" : "다시 스캔"}
               </button>
             </form>
           )}
