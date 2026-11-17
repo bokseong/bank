@@ -92,7 +92,7 @@ export const createReservationCheckout = onRequest({ region: REGION, secrets: [r
 });
 
 export const getReservationCheckout = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
-  await requireActiveRole(request, ["member", "student", "admin2"]);
+  await requireActiveRole(request, ["member", "student", "admin1", "admin2"]);
   const checkoutId = String(request.data?.checkoutId || "").trim();
   if (!/^[A-Za-z0-9_-]{8,160}$/.test(checkoutId)) throw new HttpsError("invalid-argument", "결제 요청을 찾을 수 없습니다.");
   const snapshot = await db.doc(`reservationCheckouts/${checkoutId}`).get();
@@ -104,7 +104,7 @@ export const getReservationCheckout = onCall({ region: REGION, enforceAppCheck: 
 
 export const payReservationCheckout = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true, secrets: [reservationPaymentSecret] }, async (request) => {
   rejectReplayedAppCheck(request);
-  await requireActiveRole(request, ["member", "student", "admin2"]);
+  await requireActiveRole(request, ["member", "student", "admin1", "admin2"]);
   const checkoutId = String(request.data?.checkoutId || "").trim();
   if (!/^[A-Za-z0-9_-]{8,160}$/.test(checkoutId)) throw new HttpsError("invalid-argument", "결제 요청을 찾을 수 없습니다.");
   const checkoutRef = db.doc(`reservationCheckouts/${checkoutId}`), transactionRef = db.collection("transactions").doc();
