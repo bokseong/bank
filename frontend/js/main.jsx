@@ -39,6 +39,7 @@ import {
   Building2,
   Camera,
   ClipboardCheck,
+  Github,
   History,
   LogOut,
   QrCode,
@@ -238,7 +239,7 @@ function ProviderButtons({ busy, onProvider, mode }) {
           disabled={busy}
           onClick={() => onProvider(githubProvider)}
         >
-          <b>●</b>GitHub로 {mode}
+          <Github aria-hidden="true" size={19} strokeWidth={2.2} />GitHub로 {mode}
         </button>
       </div>
     </>
