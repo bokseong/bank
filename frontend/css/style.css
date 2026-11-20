@@ -73,3 +73,34 @@ html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
 .transaction-actions button{width:auto;padding:9px 11px;white-space:nowrap}
 .consent-state{max-width:160px;color:#52667d;text-align:right;line-height:1.45}
 @media(max-width:640px){.row:has(.transaction-actions),.row:has(.consent-state){align-items:flex-start;flex-wrap:wrap}.transaction-actions{width:100%;justify-content:stretch}.transaction-actions button{flex:1}.consent-state{max-width:none;width:100%;text-align:left}}
+
+/* 홈 화면과 같은 파란색·흰색 계열을 전체 운영 화면에 적용한다. */
+.shell{background:#f5f8fc;color:#223850}
+.shell header,.about-header{background:#fff;border-color:#d9e1ec;box-shadow:0 2px 12px #27415d0d}
+.shell .brand svg,.about-header .brand svg{color:#1769c2}
+.shell nav{background:#fff;border-right:1px solid #d9e1ec;box-shadow:4px 0 16px #27415d0a}
+.shell nav a{color:#415064}
+.shell nav a.active{background:#e8f1ff;color:#174f92}
+.shell .content{background:linear-gradient(180deg,#fbfdff 0%,#f5f8fc 100%)}
+.shell .panel,.shell .request,.shell .stats article,.shell .home-link-card,.about-page .info-card{background:#fff;border-color:#d9e3ef;box-shadow:0 8px 24px #27415d0c}
+.shell .panel h2,.shell .request h3,.about-page .info-card h2,.about-page .info-card h3{color:#1c3552}
+.shell .balance{background:linear-gradient(135deg,#e5f0ff,#f7fbff);border:1px solid #bfd6f3;color:#1c3552;box-shadow:0 12px 28px #335c8f14}
+.shell .balance span,.shell .balance small{color:#4a637f}
+.shell .icon,.shell .home-link-icon{background:#e8f1ff;color:#175fa8}
+.shell .plus,.shell .admin-row>svg,.shell .cart-total strong,.shell .topup-amount strong,.shell .invoice-amount strong{color:#1769c2}
+.shell .secondary,.shell .logout{background:#e8f1ff;color:#174f92}
+.shell button:not(.secondary):not(.logout):not(.danger),.about-home-button,.site-footer .about-button{background:#1769c2;color:#fff}
+.shell button:not(.secondary):not(.logout):not(.danger):hover,.about-home-button:hover,.site-footer .about-button:hover{background:#0f579f}
+.shell input:focus,.shell select:focus{border-color:#4a8ed6;box-shadow:0 0 0 3px #1769c21c}
+.shell .topup-amount,.shell .qr-box{background:#f1f6fd}
+.shell .topup-details dt,.shell .topup-amount span,.shell .topup-amount small,.shell .request small,.shell .row small,.shell .hint,.shell .amount span,.shell .settings-page dt,.shell .home-link-card p,.shell .home-qr-heading p,.about-page .about-intro p,.about-page .contact-list dd{color:#5d6e82}
+.shell .home-link-card{color:#223850}
+.shell .home-link-card:hover{border-color:#8eb6e6;box-shadow:0 14px 30px #27415d1c}
+.shell .home-link-action,.shell .home-qr-heading span,.about-page .about-intro>span{color:#175fa8}
+.shell .account-table th{background:#f2f7fd;color:#415064}
+.shell .account-status.active{background:#e8f1ff;color:#175fa8}
+.about-page{min-height:100vh;background:linear-gradient(180deg,#fbfdff 0%,#f5f8fc 100%);color:#223850}
+.about-page .site-footer{background:#fff;border-color:#d9e1ec}
+.floating-back{color:#174f92;border-color:#c8d9ec;box-shadow:0 8px 22px #27415d1f}
+.floating-back:hover{background:#1769c2;color:#fff}
+@media(max-width:1024px){.shell nav,.shell:has(.announcement) nav{background:#f8fbff;border-top-color:#c8d9ec;box-shadow:0 -4px 18px #27415d14}.shell nav a{color:#213b59;background:#eef5ff;border:1px solid transparent;border-radius:10px;font-weight:800;opacity:1}.shell nav a.active{background:#1769c2;color:#fff;border-color:#0f579f;box-shadow:0 3px 8px #1769c24d}}

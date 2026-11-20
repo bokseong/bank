@@ -10,6 +10,7 @@ import {
   reauthenticateWithCredential,
   reauthenticateWithPopup,
   signInWithEmailAndPassword,
+  signInWithCredential,
   signInWithPopup,
   signOut,
 } from "firebase/auth";
@@ -69,6 +70,12 @@ const googleProvider = new GoogleAuthProvider(),
   githubProvider = new GithubAuthProvider();
 const ROOT_ADMIN_EMAIL = "github.jwastro09@gmail.com";
 const AUTO_TOPUP_PACKAGES = [1000, 2000, 3000, 5000, 10000];
+const requestNativeGoogleSignIn = () => {
+  const bridge = window.BokseongBank;
+  if (typeof bridge?.postMessage !== "function") return false;
+  bridge.postMessage(JSON.stringify({ type: "google-sign-in" }));
+  return true;
+};
 const isRootAdmin = (user) =>
   user?.emailVerified && user.email?.toLowerCase() === ROOT_ADMIN_EMAIL;
 const normalizeRole = (role) => legacyRoles[role] || role || "member";
@@ -250,6 +257,14 @@ function Auth() {
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  useEffect(() => {
+    const showNativeAuthError = (event) => {
+      setBusy(false);
+      setError(event.detail?.message || "Google 로그인에 실패했습니다.");
+    };
+    window.addEventListener("bokseong-native-auth-error", showNativeAuthError);
+    return () => window.removeEventListener("bokseong-native-auth-error", showNativeAuthError);
+  }, []);
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
@@ -265,6 +280,7 @@ function Auth() {
   async function oauth(provider) {
     setBusy(true);
     setError("");
+    if (provider.providerId === "google.com" && requestNativeGoogleSignIn()) return;
     try {
       await signInWithPopup(auth, provider);
     } catch (e) {
@@ -1479,6 +1495,21 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.remove("dark-theme");
     localStorage.removeItem("bokseong-festival-bank-theme");
+  }, []);
+  useEffect(() => {
+    const signInFromNativeApp = async (event) => {
+      const idToken = event.detail?.idToken;
+      if (!idToken) return;
+      try {
+        await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));
+      } catch (error) {
+        const message = friendlyError(error);
+        window.dispatchEvent(new CustomEvent("bokseong-native-auth-error", { detail: { message } }));
+        window.BokseongBank?.postMessage?.(JSON.stringify({ type: "web-auth-error", message }));
+      }
+    };
+    window.addEventListener("bokseong-native-google-token", signInFromNativeApp);
+    return () => window.removeEventListener("bokseong-native-google-token", signInFromNativeApp);
   }, []);
   const page = location.pathname.split("/").pop() || "index.html";
   if (page === "about.html") return <About />;
