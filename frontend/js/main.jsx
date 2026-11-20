@@ -391,11 +391,20 @@ function About() {
     privacy: document.getElementById("privacy-content")?.innerHTML || "",
   };
   const contacts = document.getElementById("site-contact-content")?.innerHTML || "";
+  const goBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.assign(base);
+  };
   return (
     <main className="about-page">
       <header className="about-header">
         <a className="brand" href={base}><Building2 />복성고 축제은행</a>
-        <a className="back-link" href={base}>메인 화면으로 돌아가기</a>
+        <button type="button" className="about-home-button" onClick={() => window.location.assign(base)}>
+          메인 화면으로 돌아가기
+        </button>
       </header>
       <div className="about-content">
         <section className="about-intro">
@@ -413,6 +422,9 @@ function About() {
         </section>
         <p className="sync-note"> </p>
       </div>
+      <button type="button" className="floating-back" onClick={goBack} aria-label="이전 페이지로 이동" title="뒤로가기">
+        <ArrowLeft />
+      </button>
     </main>
   );
 }
