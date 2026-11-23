@@ -1,0 +1,50 @@
+name: Build bank-users iOS unsigned
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag containing the iOS source archive
+        required: true
+        default: v1.2.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Download source archive
+        run: gh release download "${{ inputs.tag }}" --pattern "bank-users-ios-source-*.zip" --dir source
+
+      - name: Extract source
+        run: |
+          mkdir app
+          ditto -x -k source/bank-users-ios-source-*.zip app
+
+      - name: Resolve dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Build unsigned iOS application
+        working-directory: app
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir Payload
+          cp -R app/build/ios/iphoneos/Runner.app Payload/
+          zip -qry "bank-users-ios-unsigned-${{ inputs.tag }}.ipa" Payload
+
+      - name: Upload unsigned IPA
+        run: gh release upload "${{ inputs.tag }}" "bank-users-ios-unsigned-${{ inputs.tag }}.ipa" --clobber

@@ -104,3 +104,20 @@ html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
 .floating-back{color:#174f92;border-color:#c8d9ec;box-shadow:0 8px 22px #27415d1f}
 .floating-back:hover{background:#1769c2;color:#fff}
 @media(max-width:1024px){.shell nav,.shell:has(.announcement) nav{background:#f8fbff;border-top-color:#c8d9ec;box-shadow:0 -4px 18px #27415d14}.shell nav a{color:#213b59;background:#eef5ff;border:1px solid transparent;border-radius:10px;font-weight:800;opacity:1}.shell nav a.active{background:#1769c2;color:#fff;border-color:#0f579f;box-shadow:0 3px 8px #1769c24d}}
+
+/* 로그인 화면도 홈과 같은 파란색·흰색 계열로 통일한다. */
+.auth{background:#fff;color:#223850}
+.auth .hero{background:linear-gradient(145deg,#174f92,#2f7ac4);color:#fff}
+.auth .hero p{color:#e1edfa}
+.auth .auth-card{background:#fff}
+.auth .auth-card>p,.auth .auth-help{color:#5d6e82}
+.auth input{border-color:#c8d9ec;background:#fff;color:#223850}
+.auth input:focus{border-color:#4a8ed6;box-shadow:0 0 0 3px #1769c21c}
+.auth form>button{background:#1769c2;color:#fff}
+.auth form>button:hover{background:#0f579f}
+.auth .divider{color:#718399}
+.auth .divider:before,.auth .divider:after{background:#d9e3ef}
+.auth .provider.google{border-color:#c8d9ec;color:#223850;background:#fff}
+.auth .provider.google:hover{background:#eef5ff;border-color:#8eb6e6}
+.auth .provider.github{background:#174f92;color:#fff;border-color:#174f92}
+.auth .provider.github:hover{background:#0f579f;border-color:#0f579f}
