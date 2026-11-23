@@ -52,7 +52,7 @@
 3. Firestore와 Realtime Database가 활성화되어 있는지 확인한다.
 4. App Check에서 웹 앱 `bank`가 Fraud Defense(reCAPTCHA Enterprise) 제공업체로 등록되어 있는지 확인한다.
 5. App Check의 Firestore, Realtime Database, Authentication 적용 상태와 요청 지표를 확인한다.
-6. Android 앱 `kr.hsbokseong.bank_collector`는 App Check에 별도로 등록한다. 개발용 debug APK는 Debug provider, 정식 release APK는 Play Integrity provider를 사용한다.
+6. Android 앱 `kr.hsbokseong.bank_collector`는 App Check에 별도로 등록한다. 개발용 debug APK는 Debug provider, 현재 정식 release APK는 코드에 설정된 Fraud Defense(reCAPTCHA provider)를 사용한다.
 7. Google 로그인에는 Android 앱의 패키지명과 debug/release 서명키 SHA-1·SHA-256이 Firebase 프로젝트 설정에 등록되어 있어야 한다. 지문을 추가한 경우 `android/app/google-services.json`을 다시 내려받아 교체한다.
 
 ### 3.2 Functions App Check 확인
@@ -165,9 +165,85 @@ QR은 주문별로 유효 시간이 있으며, 이미 결제된 QR은 다시 사
 - Functions 로그, Firestore 거래 기록, Realtime Database 운영 로그를 삭제하지 않는다.
 - 실제 계좌번호, 환급 계좌정보, 개인식별정보를 스크린샷·공개 채팅에 올리지 않는다.
 - Android Debug token은 비밀값이다. 소스 코드·GitHub·공지문에 저장하지 않으며, 개발 종료 후 Firebase App Check에서 삭제한다.
-- 정식 Android APK에는 Debug provider를 사용하지 않는다. Play Integrity 요청이 App Check 지표에서 정상 수신되는 것을 확인한 뒤 Authentication 강제를 유지한다.
+- 정식 Android APK에는 Debug provider를 사용하지 않는다. Fraud Defense 요청이 App Check 지표에서 정상 수신되는 것을 확인한 뒤 Authentication 강제를 유지한다.
 
-## 8. Android 입금 수집기 운영과 정식 배포
+## 8. 휴대폰 앱 설치·운영과 무료 배포
+
+### 가장 쉬운 설치 방법: PWA
+
+일반 사용자는 APK보다 `https://bokseong.github.io/bank/`의 다운로드 아이콘을 눌러 PWA를 설치한다. 이 방식은 무료이며 GitHub Pages의 최신 화면을 그대로 사용하므로 APK 업데이트가 필요 없다. 또한 `출처를 알 수 없는 앱 설치`, `제한된 설정 허용`, Play Protect 해제도 필요 없다. Web App Manifest와 Service Worker가 적용되어 Android·iOS 홈 화면 앱으로 실행된다.
+
+다운로드 페이지: `https://bokseong.github.io/bank/download.html`
+
+다운로드 아이콘과 다운로드 페이지는 일반 브라우저에서만 표시된다. 설치된 PWA의 standalone 모드와 `BokseongBank` 브리지가 있는 Android APK WebView에서는 아이콘을 숨기며, 다운로드 페이지에 직접 접근하면 메인 화면으로 이동한다.
+
+#### Android
+
+1. Chrome에서 `https://bokseong.github.io/bank/`를 연다.
+2. 오른쪽 위 메뉴(⋮)에서 **홈 화면에 추가** 또는 **앱 설치**를 누른다.
+3. **설치**를 누른다.
+4. QR 결제 화면을 처음 사용할 때만 카메라 권한을 허용한다.
+
+#### iPhone·iPad
+
+1. Safari에서 `https://bokseong.github.io/bank/`를 연다.
+2. **공유** → **홈 화면에 추가**를 누른다.
+3. 표시되는 경우 **웹 앱으로 열기**를 켠 뒤 **추가**를 누른다.
+
+Apple은 Safari에서 웹 사이트를 홈 화면 앱으로 추가하는 절차를 공식 지원한다. 자세한 절차는 [Apple의 홈 화면 웹 앱 안내](https://support.apple.com/guide/iphone/turn-a-website-into-an-app-iphea86e5236/ios)를 참고한다.
+
+### GitHub Release APK 설치
+
+APK가 반드시 필요한 경우에만 [GitHub 최신 Release](https://github.com/bokseong/bank/releases/latest)에서 내려받는다. Android는 Google Play 이외의 출처에서 받은 APK를 설치할 때 사용자가 설치 출처를 직접 허용하도록 설계되어 있다. 앱이나 웹 페이지가 이 보호 기능을 자동으로 해제할 수 없으며, 자동 우회 기능도 구현하지 않는다.
+
+1. Release 주소가 `https://github.com/bokseong/bank/releases/`로 시작하는지 확인한다.
+2. 일반 사용자 앱은 `bank-users-android-*.apk`, 입금 수집기는 `bank-collector-android-*.apk`를 받는다.
+3. 같은 Release의 `SHA256SUMS.txt`와 APK의 SHA-256이 같은지 운영자가 먼저 확인한다.
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\bank-users-android-*.apk
+Get-Content .\SHA256SUMS.txt
+```
+
+4. APK를 열고 차단 안내가 나오면 **설정** → 현재 APK를 연 앱(Chrome 또는 파일 앱) → **이 출처 허용**을 켠다.
+5. 설치가 끝나면 **설정** → **앱** → **특별한 앱 액세스** → **출처를 알 수 없는 앱 설치**에서 방금 허용한 출처를 다시 끈다. 제조사와 Android 버전에 따라 메뉴 이름은 조금 다를 수 있다.
+6. Play Protect는 끄지 않는다. 단순히 Google Play 외부 앱이라는 확인 메시지가 표시되면 배포 주소·파일명·SHA-256을 확인한 뒤 진행한다. **유해한 앱**, **악성 코드** 또는 권한 오용 경고가 표시되면 설치를 중단하고 운영자에게 확인한다.
+
+Google은 외부 출처 앱을 검사하는 [Play Protect를 계속 켜 둘 것을 권장](https://support.google.com/googleplay/answer/2812853/)하며, Android 8 이상에서는 [설치 출처별 사용자 허용이 필수](https://developer.android.com/studio/publish#publishing-unknown)라고 안내한다.
+
+### 입금 수집기 `bank-collector` 설치
+
+입금 수집기는 일반 학생에게 배포하지 않고, 1급 관리자 계정이 사용하는 학생회 전용 Android 기기 한 대에만 설치한다.
+
+1. 위 APK 설치 절차와 SHA-256 검증을 완료한다.
+2. 앱에 1급 관리자 계정으로 로그인한다. Firestore `users/{uid}`가 `role: "admin1"`, `status: "active"`가 아니면 앱이 자동으로 로그아웃한다.
+3. 앱의 **알림 접근 설정 열기**를 누르고 `bank-collector`만 허용한다.
+4. Android 13 이상에서 알림 접근이 차단될 때만 **설정** → **앱** → `bank-collector` → 오른쪽 위 메뉴(⋮) → **제한된 설정 허용**을 선택한 뒤 알림 접근을 다시 허용한다.
+5. 앱이 요구하지 않는 접근성, SMS, 연락처, 통화 기록 권한은 허용하지 않는다. 현재 앱은 다른 앱의 입금 알림을 읽기 위한 `NotificationListenerService`만 사용한다.
+
+제한된 설정은 민감한 정보 접근을 열 수 있으므로, Google도 신뢰하는 개발자의 앱에만 허용하도록 안내한다. 자세한 내용은 [Android 제한된 설정 안내](https://support.google.com/android/answer/12623953)를 참고한다.
+
+### iOS 앱 파일에 대한 주의
+
+- 서명되지 않은 `.ipa`는 일반 iPhone에 GitHub에서 바로 설치할 수 없다.
+- 비용 없이 편하게 쓰려면 위의 Safari 홈 화면 웹 앱 방식을 사용한다.
+- TestFlight·App Store 배포에는 원칙적으로 Apple Developer Program이 필요하며 연회비는 99 USD이다. 공인 교육기관은 조건을 충족하면 [Apple에 수수료 면제를 신청](https://developer.apple.com/help/account/membership/fee-waivers/)할 수 있지만, 학교 명의 조직 등록과 Apple의 승인이 필요하다.
+- iOS는 다른 앱의 알림이나 은행 앱 메시지를 읽는 입금 수집기 기능을 허용하지 않으므로 `bank-collector`는 Android 전용이다.
+
+### 무료 배포 방식 검토 결과
+
+| 방식 | 비용 | 별도 보안 설정 | 적용 대상 | 판단 |
+| --- | ---: | --- | --- | --- |
+| GitHub Pages 설치형 PWA | 0원 | 불필요 | iOS·Android 일반 사용자 | 권장 |
+| GitHub Release APK | 0원 | 설치 출처 허용 필요 | Android 일반 앱·입금 수집기 | 관리자·전용 기기에만 적합 |
+| Android Developer Console 제한 배포 | 0원 | GitHub APK의 설치 출처 허용을 대신하지 않음 | 최대 50대의 승인 기기 | 개발자 검증 보조 수단 |
+| F-Droid | 0원 | 최초 스토어 설치가 필요할 수 있음 | 완전한 오픈소스 Android 앱 | 현재 Firebase 의존성 때문에 공식 저장소 정책에 부적합 |
+| Google Play | 25 USD 1회 | 불필요 | Android | 무료 아님 |
+| App Store·TestFlight | 99 USD/년 | 불필요 | iOS | 교육기관 면제 승인 시에만 무료 가능 |
+
+따라서 **iOS 일반 사용자는 PWA**, **Android 일반 사용자는 PWA 또는 APK**, **입금 수집기는 검증된 GitHub Release APK를 학생회 전용 Android 기기에 1회 설치**하는 구성이 비용과 보안을 함께 고려한 현실적인 방식이다. GitHub Release APK 자체를 일반 앱 스토어처럼 경고 없이 설치하게 만드는 무료 설정은 없다. Android Developer Console의 무료 제한 배포는 현재 공식 세부 안내 기준 최대 50대의 승인 기기를 대상으로 개발자·패키지를 등록할 수 있지만, GitHub에서 직접 받은 APK의 출처 허용 절차를 없애는 기능은 아니다. 공식 내용은 [Android 제한 배포 안내](https://support.google.com/android-developer-console/answer/17131204)에서 확인할 수 있다.
+
+### Android 입금 수집기 운영과 정식 배포
 
 프로젝트 위치:
 
@@ -186,7 +262,7 @@ Set-Location C:\Users\user\Desktop\programming\bank_apk\bank_collector
 
 1. release 서명키의 SHA-1 및 SHA-256을 Firebase Console → 프로젝트 설정 → Android 앱에 등록한다.
 2. 최신 `google-services.json`을 `android/app/google-services.json`에 교체한다.
-3. Firebase Console → App Check에서 Android 앱에 Play Integrity provider를 등록한다.
+3. Firebase Console → App Check에서 Android 앱의 Fraud Defense 구성이 운영 앱과 일치하는지 확인한다.
 4. release APK를 만든다.
 
 ```powershell
@@ -280,7 +356,7 @@ npx.cmd firebase-tools@15.36.0 deploy --only functions --project hs-bokseong
 1. debug APK인지 release APK인지 먼저 확인한다.
 2. debug APK는 휴대폰 로그의 Debug token을 **해당 Android App Check 앱**에 등록했는지 확인한다.
 3. token 등록 후 앱을 완전히 종료하고 다시 실행한다.
-4. release APK는 Debug token을 쓰지 않는다. Android 앱에 Play Integrity provider를 등록하고 release 서명 SHA-1·SHA-256과 최신 `google-services.json`을 확인한다.
+4. release APK는 Debug token을 쓰지 않는다. 코드와 Firebase App Check의 Fraud Defense 구성이 일치하는지 확인하고 release 서명 SHA-1·SHA-256과 최신 `google-services.json`을 확인한다.
 
 ### Android 앱이 로그인 직후 로그아웃됨
 

@@ -40,6 +40,7 @@ import {
   Building2,
   Camera,
   ClipboardCheck,
+  Download,
   Github,
   History,
   LogOut,
@@ -53,6 +54,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { auth, db, functions, rtdb } from "./firebase";
 import { friendlyError, validAmount, won } from "./domain";
+import { detectInstallEnvironment } from "./install";
 import { makeOrderQr, parseOrderQr } from "./qr";
 import "../css/style.css";
 
@@ -399,6 +401,120 @@ function SiteFooter() {
         이 사이트에 대해 알아보기
       </a>
     </footer>
+  );
+}
+function DownloadShortcut() {
+  const page = location.pathname.split("/").pop() || "index.html";
+  if (page === "download.html" || detectInstallEnvironment().hideDownloads) return null;
+  return (
+    <a className="download-shortcut" href={`${base}download.html`} aria-label="앱 다운로드" title="앱 다운로드">
+      <Download />
+    </a>
+  );
+}
+function DownloadPage() {
+  const environment = detectInstallEnvironment();
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installMessage, setInstallMessage] = useState("");
+  const [apk, setApk] = useState({
+    url: "https://github.com/bokseong/bank/releases/latest",
+    label: "최신 GitHub Release 열기",
+    checksumUrl: "https://github.com/bokseong/bank/releases/latest",
+  });
+
+  useEffect(() => {
+    const capturePrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    window.addEventListener("beforeinstallprompt", capturePrompt);
+    return () => window.removeEventListener("beforeinstallprompt", capturePrompt);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("https://api.github.com/repos/bokseong/bank/releases/latest", {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: controller.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("release lookup failed");
+        return response.json();
+      })
+      .then((release) => {
+        const assets = Array.isArray(release.assets) ? release.assets : [];
+        const apkAsset = assets.find((asset) => /^bank-users-android-.*\.apk$/i.test(asset.name));
+        const checksumAsset = assets.find((asset) => asset.name === "SHA256SUMS.txt");
+        if (!apkAsset) return;
+        setApk({
+          url: apkAsset.browser_download_url,
+          label: `Android APK 다운로드${release.tag_name ? ` (${release.tag_name})` : ""}`,
+          checksumUrl: checksumAsset?.browser_download_url || release.html_url,
+        });
+      })
+      .catch((error) => {
+        if (error.name !== "AbortError") console.warn("최신 APK 주소를 불러오지 못했습니다.", error);
+      });
+    return () => controller.abort();
+  }, []);
+
+  async function installPwa() {
+    if (installPrompt) {
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      setInstallMessage(choice.outcome === "accepted" ? "설치 요청을 완료했습니다." : "설치를 취소했습니다.");
+      setInstallPrompt(null);
+      return;
+    }
+    setInstallMessage(
+      environment.ios
+        ? "Safari의 공유 버튼을 누른 뒤 ‘홈 화면에 추가’를 선택해 주세요."
+        : "Chrome 메뉴(⋮)에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택해 주세요.",
+    );
+  }
+
+  return (
+    <main className="download-page">
+      <header className="download-header">
+        <a className="brand" href={`${base}index.html`}><Building2 />복성고 축제은행</a>
+        <a className="download-home" href={`${base}index.html`}>메인 화면</a>
+      </header>
+      <div className="download-content">
+        <section className="download-intro">
+          <span>INSTALL THE APP</span>
+          <h1>사용할 기기에 맞게 설치하세요</h1>
+          <p>iPhone·iPad는 PWA로, Android는 PWA 또는 APK로 사용할 수 있습니다.</p>
+        </section>
+        <section className="download-grid">
+          <article className="download-card recommended">
+            <span className="download-badge">iPhone · iPad · Android 권장</span>
+            <h2>PWA 설치</h2>
+            <p>앱 스토어 없이 홈 화면에 설치되며, 사이트가 업데이트되면 최신 기능이 자동으로 적용됩니다.</p>
+            <ol>
+              <li>Android: Chrome 메뉴(⋮)에서 <b>앱 설치</b> 또는 <b>홈 화면에 추가</b></li>
+              <li>iPhone·iPad: Safari 공유 메뉴에서 <b>홈 화면에 추가</b></li>
+            </ol>
+            <button type="button" onClick={installPwa}>PWA 설치</button>
+            {installMessage && <p className="install-message" role="status">{installMessage}</p>}
+          </article>
+          <article className="download-card android-only">
+            <span className="download-badge">Android 전용</span>
+            <h2>APK 설치</h2>
+            <p>Android용 네이티브 앱입니다. GitHub Release에서 받은 APK만 사용하고, 설치 전에 SHA-256 값을 확인하세요.</p>
+            <a className="primary-download" href={apk.url}>{apk.label}</a>
+            <a className="checksum-link" href={apk.checksumUrl}>SHA256SUMS.txt 확인</a>
+            <small>Android가 외부 앱 설치 허용을 요청할 수 있습니다. Play Protect는 끄지 마세요.</small>
+          </article>
+        </section>
+        <section className="download-security">
+          <ShieldCheck />
+          <div>
+            <h2>설치 보안 안내</h2>
+            <p>보안 기능을 자동으로 해제하거나 우회하지 않습니다. PWA 또는 공식 GitHub Release 파일만 사용하세요.</p>
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }
 function About() {
@@ -1513,6 +1629,7 @@ function App() {
   }, []);
   const page = location.pathname.split("/").pop() || "index.html";
   if (page === "about.html") return <About />;
+  if (page === "download.html") return <DownloadPage />;
   return <AuthenticatedApp />;
 }
 function AuthenticatedApp() {
@@ -1659,9 +1776,33 @@ function AuthenticatedApp() {
     </div>
   );
 }
+function Root() {
+  const page = location.pathname.split("/").pop() || "index.html";
+  const environment = detectInstallEnvironment();
+  const blockDownloadPage = page === "download.html" && environment.hideDownloads;
+
+  useEffect(() => {
+    if (blockDownloadPage) window.location.replace(`${base}index.html`);
+  }, [blockDownloadPage]);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator) || environment.nativeApp) return;
+    navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch((error) => {
+      console.warn("PWA Service Worker를 등록하지 못했습니다.", error);
+    });
+  }, [environment.nativeApp]);
+
+  if (blockDownloadPage) return null;
+  return (
+    <>
+      <App />
+      <DownloadShortcut />
+      <SiteFooter />
+    </>
+  );
+}
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <App />
-    <SiteFooter />
+    <Root />
   </React.StrictMode>,
 );

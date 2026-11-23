@@ -121,3 +121,39 @@ html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
 .auth .provider.google:hover{background:#eef5ff;border-color:#8eb6e6}
 .auth .provider.github{background:#174f92;color:#fff;border-color:#174f92}
 .auth .provider.github:hover{background:#0f579f;border-color:#0f579f}
+
+/* 일반 브라우저에서만 표시되는 앱 다운로드 진입 버튼 */
+.download-shortcut{position:fixed;right:22px;bottom:22px;z-index:60;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;background:#1769c2;color:#fff;border:1px solid #0f579f;box-shadow:0 10px 28px #174f9245;text-decoration:none;transition:transform .18s ease,background .18s ease}
+.download-shortcut:hover{background:#0f579f;transform:translateY(-2px)}
+.download-shortcut svg{width:21px;height:21px}
+@media(display-mode:standalone){.download-shortcut{display:none!important}}
+
+/* PWA·APK 선택 다운로드 페이지 */
+.download-page{min-height:100vh;background:linear-gradient(180deg,#fbfdff 0%,#f1f6fd 100%);color:#223850}
+.download-header{height:72px;position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;padding:0 max(24px,calc((100% - 1040px)/2));background:#fff;border-bottom:1px solid #d9e1ec;box-shadow:0 2px 12px #27415d0d}
+.download-header .brand{color:#223850;text-decoration:none}
+.download-header .brand svg{width:22px;color:#1769c2}
+.download-home{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 15px;border-radius:10px;background:#e8f1ff;color:#174f92;font-weight:800;text-decoration:none}
+.download-home:hover{background:#d7e9ff}
+.download-content{max-width:1040px;margin:0 auto;padding:64px 24px 84px}
+.download-intro{max-width:720px;margin-bottom:32px}
+.download-intro>span{font-size:13px;font-weight:800;letter-spacing:.14em;color:#1769c2}
+.download-intro h1{font-size:clamp(34px,5vw,54px);line-height:1.15;letter-spacing:-2px;margin:10px 0 16px;color:#1c3552}
+.download-intro p{font-size:18px;line-height:1.7;color:#5d6e82;margin:0}
+.download-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.download-card{position:relative;padding:30px;background:#fff;border:1px solid #d9e3ef;border-radius:20px;box-shadow:0 12px 32px #27415d12}
+.download-card.recommended{border-color:#8eb6e6;box-shadow:0 16px 36px #1769c21a}
+.download-badge{display:inline-flex;padding:6px 10px;border-radius:999px;background:#e8f1ff;color:#175fa8;font-size:12px;font-weight:800}
+.download-card h2{font-size:28px;margin:20px 0 10px;color:#1c3552}
+.download-card>p{color:#5d6e82;line-height:1.65;min-height:80px}
+.download-card ol{padding-left:22px;color:#415064;line-height:1.75;min-height:94px}
+.download-card button,.primary-download{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;border-radius:10px;background:#1769c2;color:#fff;font-weight:800;text-decoration:none}
+.download-card button:hover,.primary-download:hover{background:#0f579f}
+.checksum-link{display:block;margin:14px 0;text-align:center;color:#174f92;font-weight:700;text-underline-offset:3px}
+.download-card small{display:block;color:#6a7889;line-height:1.55}
+.install-message{min-height:24px!important;margin:12px 0 0!important;color:#174f92!important;font-size:14px}
+.download-security{display:flex;align-items:flex-start;gap:16px;margin-top:22px;padding:22px 24px;border:1px solid #bfd6f3;border-radius:16px;background:#eaf3ff;color:#1c3552}
+.download-security>svg{width:28px;height:28px;flex:none;color:#1769c2}
+.download-security h2{font-size:18px;margin:0 0 6px}
+.download-security p{margin:0;color:#4a637f;line-height:1.6}
+@media(max-width:720px){.download-shortcut{right:16px;bottom:88px;width:44px;height:44px}.download-content{padding:42px 18px 112px}.download-header{padding:0 18px}.download-header .brand{font-size:17px}.download-home{padding:8px 11px;font-size:14px}.download-grid{grid-template-columns:1fr}.download-card{padding:24px}.download-card>p,.download-card ol{min-height:auto}.download-intro h1{letter-spacing:-1.5px}.download-security{padding:20px}}

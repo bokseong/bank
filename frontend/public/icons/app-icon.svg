@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="복성고 축제은행">
+  <rect width="512" height="512" rx="112" fill="#1769c2"/>
+  <path fill="#fff" d="M96 208 256 112l160 96v40H96v-40Zm32 72h48v104h-48V280Zm104 0h48v104h-48V280Zm104 0h48v104h-48V280ZM88 416v-40h336v40H88Z"/>
+  <circle cx="256" cy="197" r="24" fill="#dcecff"/>
+</svg>
