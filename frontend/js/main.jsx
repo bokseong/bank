@@ -348,7 +348,7 @@ function Auth() {
         <ProviderButtons busy={busy} onProvider={oauth} mode="로그인" />
         <small className="auth-help">
           로그인 및 회원가입 시 자동으로 이용약관 및 개인 정보 수집 및 이용에 동의한 것으로 간주됩니다.
-          이용약관 및 개인정보 수집 및 이용 동의는 <a href="https://bokseong.github.io/bank/frontend/about.html">여기서</a> 확인하시길 바랍니다.
+          이용약관 및 개인정보 수집 및 이용 동의는 <a href="https://bokseong.github.io/bank/about.html">여기서</a> 확인하시길 바랍니다.
         </small>
       </section>
     </main>
