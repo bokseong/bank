@@ -12,21 +12,9 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "/bank/icons/app-icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/bank/icons/app-icon-512.png",
+      "src": "/bank/images/bokseong_cl.jpg",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/bank/icons/app-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/jpeg",
       "purpose": "any maskable"
     }
   ]

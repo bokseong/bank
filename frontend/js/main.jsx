@@ -55,6 +55,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { auth, db, functions, rtdb } from "./firebase";
 import { friendlyError, validAmount, won } from "./domain";
 import SiteFooter from "./footer";
+import SchoolLogo from "./logo";
 import { detectInstallEnvironment } from "./install";
 import { makeOrderQr, parseOrderQr } from "./qr";
 import "../css/style.css";
@@ -296,7 +297,7 @@ function Auth() {
     <main className="auth">
       <section className="hero">
         <div className="mark">
-          <Building2 />
+          <SchoolLogo />
           복성고 축제은행
         </div>
         <h1>
@@ -379,8 +380,12 @@ function LegalModal({ type, onClose }) {
 function DownloadShortcut() {
   const page = location.pathname.split("/").pop() || "index.html";
   if (page === "download.html" || detectInstallEnvironment().hideDownloads) return null;
+  const goToDownload = (event) => {
+    event.preventDefault();
+    window.location.assign(`${base}download.html`);
+  };
   return (
-    <a className="download-shortcut" href={`${base}download.html`} aria-label="앱 다운로드" title="앱 다운로드">
+    <a className="download-shortcut" href={`${base}download.html`} onClick={goToDownload} aria-label="앱 다운로드" title="앱 다운로드">
       <Download />
     </a>
   );
@@ -449,7 +454,7 @@ function DownloadPage() {
   return (
     <main className="download-page">
       <header className="download-header">
-        <a className="brand" href={`${base}index.html`}><Building2 />복성고 축제은행</a>
+        <a className="brand" href={`${base}index.html`}><SchoolLogo />복성고 축제은행</a>
         <a className="download-home" href={`${base}index.html`}>메인 화면</a>
       </header>
       <div className="download-content">
@@ -506,7 +511,7 @@ function About() {
   return (
     <main className="about-page">
       <header className="about-header">
-        <a className="brand" href={base}><Building2 />복성고 축제은행</a>
+        <a className="brand" href={base}><SchoolLogo />복성고 축제은행</a>
         <button type="button" className="about-home-button" onClick={() => window.location.assign(base)}>
           메인 화면으로 돌아가기
         </button>
@@ -664,7 +669,7 @@ function Signup() {
     <main className="auth">
       <section className="hero">
         <div className="mark">
-          <Building2 />
+          <SchoolLogo />
           복성고 축제은행
         </div>
         <h1>
@@ -1708,7 +1713,7 @@ function AuthenticatedApp() {
           className="brand"
           href={`${base}index.html`}
         >
-          <Building2 />
+          <SchoolLogo />
           {config.festivalName}
         </a>
         <div>
@@ -1752,11 +1757,6 @@ function AuthenticatedApp() {
 function Root() {
   const page = location.pathname.split("/").pop() || "index.html";
   const environment = detectInstallEnvironment();
-  const blockDownloadPage = page === "download.html" && environment.hideDownloads;
-
-  useEffect(() => {
-    if (blockDownloadPage) window.location.replace(`${base}index.html`);
-  }, [blockDownloadPage]);
 
   useEffect(() => {
     if (!("serviceWorker" in navigator) || environment.nativeApp) return;
@@ -1765,7 +1765,6 @@ function Root() {
     });
   }, [environment.nativeApp]);
 
-  if (blockDownloadPage) return null;
   return (
     <>
       <App />

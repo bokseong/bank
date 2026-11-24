@@ -91,6 +91,7 @@ html.dark-theme .home-shell .home-link-icon{background:#e8f1ff;color:#175fa8}
 .shell .secondary,.shell .logout{background:#e8f1ff;color:#174f92}
 .shell button:not(.secondary):not(.logout):not(.danger),.about-home-button,.site-footer .about-button{background:#1769c2;color:#fff}
 .shell button:not(.secondary):not(.logout):not(.danger):hover,.about-home-button:hover,.site-footer .about-button:hover{background:#0f579f}
+.school-logo{width:32px;height:32px;object-fit:contain;flex:none;border-radius:50%}.mark .school-logo{width:30px;height:30px}.brand .school-logo{width:30px;height:30px}
 .shell input:focus,.shell select:focus{border-color:#4a8ed6;box-shadow:0 0 0 3px #1769c21c}
 .shell .topup-amount,.shell .qr-box{background:#f1f6fd}
 .shell .topup-details dt,.shell .topup-amount span,.shell .topup-amount small,.shell .request small,.shell .row small,.shell .hint,.shell .amount span,.shell .settings-page dt,.shell .home-link-card p,.shell .home-qr-heading p,.about-page .about-intro p,.about-page .contact-list dd{color:#5d6e82}
