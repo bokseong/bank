@@ -461,34 +461,34 @@ function DownloadPage() {
         <section className="download-intro">
           <span>INSTALL THE APP</span>
           <h1>사용할 기기에 맞게 설치하세요</h1>
-          <p>iPhone·iPad는 PWA로, Android는 PWA 또는 APK로 사용할 수 있습니다.</p>
+          <p>iPhone·iPad는 웹 앱으로, Android는 웹 앱 또는 APK로 사용할 수 있습니다.</p>
         </section>
         <section className="download-grid">
           <article className="download-card recommended">
             <span className="download-badge">iPhone · iPad · Android 권장</span>
-            <h2>PWA 설치</h2>
+            <h2>웹 앱으로 설치</h2>
             <p>앱 스토어 없이 홈 화면에 설치되며, 사이트가 업데이트되면 최신 기능이 자동으로 적용됩니다.</p>
             <ol>
-              <li>Android: Chrome 메뉴(⋮)에서 <b>앱 설치</b> 또는 <b>홈 화면에 추가</b></li>
-              <li>iPhone·iPad: Safari 공유 메뉴에서 <b>홈 화면에 추가</b></li>
+              <li>Android: Chrome 메뉴(⋮)에서 <b>앱 설치</b> 또는 <b>홈 화면에 추가</b> 또는 <b>홈페이지 우측 하단 다운로드</b> 표시 클릭</li>
+              <li>iPhone·iPad: Safari 공유 메뉴에서 <b>홈 화면에 추가</b> 또는 <b>홈페이지 우측 하단 다운로드</b> 표시 클릭</li>
             </ol>
-            <button type="button" onClick={installPwa}>PWA 설치</button>
+            <button type="button" onClick={installPwa}>웹 앱 설치</button>
             {installMessage && <p className="install-message" role="status">{installMessage}</p>}
           </article>
           <article className="download-card android-only">
             <span className="download-badge">Android 전용</span>
             <h2>APK 설치</h2>
-            <p>Android용 네이티브 앱입니다. GitHub Release에서 받은 APK만 사용하고, 설치 전에 SHA-256 값을 확인하세요.</p>
+            <p>Android용 네이티브 앱입니다. GitHub Release에서 받은 APK만 사용합니다.</p>
             <a className="primary-download" href={apk.url}>{apk.label}</a>
             <a className="checksum-link" href={apk.checksumUrl}>SHA256SUMS.txt 확인</a>
-            <small>Android가 외부 앱 설치 허용을 요청할 수 있습니다. Play Protect는 끄지 마세요.</small>
+            <small>Android가 외부 앱 설치 허용을 요청할 수 있습니다. 이때는 설정에서 보안 위협 자동 차단만 잠시 해제 하고, google Play Protect는 끄지 마세요.</small>
           </article>
         </section>
         <section className="download-security">
           <ShieldCheck />
           <div>
             <h2>설치 보안 안내</h2>
-            <p>보안 기능을 자동으로 해제하거나 우회하지 않습니다. PWA 또는 공식 GitHub Release 파일만 사용하세요.</p>
+            <p>보안 기능을 자동으로 해제하거나 우회하지 않습니다. 웹 앱 또는 <a href="https://github.com/bokseong/bank/releases">공식 GitHub Release 파일</a>만 사용하세요.</p>
           </div>
         </section>
       </div>
