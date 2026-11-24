@@ -9,6 +9,7 @@ import {
   onAuthStateChanged,
   reauthenticateWithCredential,
   reauthenticateWithPopup,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithCredential,
   signInWithPopup,
@@ -293,6 +294,21 @@ function Auth() {
       setBusy(false);
     }
   }
+  async function requestPasswordReset() {
+    const resetEmail = window.prompt("비밀번호 재설정 메일을 받을 이메일 주소를 입력하세요.", email)?.trim();
+    if (!resetEmail) return;
+    setBusy(true);
+    setError("");
+    try {
+      await sendPasswordResetEmail(auth, resetEmail);
+      setEmail(resetEmail);
+      alert("비밀번호 재설정 메일을 보냈습니다. 받은편지함과 스팸함을 확인해 주세요.");
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <main className="auth">
       <section className="hero">
@@ -345,6 +361,9 @@ function Auth() {
             {busy ? "확인 중…" : "이메일로 로그인"}
           </button>
         </form>
+        <button type="button" className="auth-link password-reset" disabled={busy} onClick={requestPasswordReset}>
+          비밀번호 찾기 및 재설정
+        </button>
         <ProviderButtons busy={busy} onProvider={oauth} mode="로그인" />
         <small className="auth-help">
           로그인 및 회원가입 시 자동으로 이용약관 및 개인 정보 수집 및 이용에 동의한 것으로 간주됩니다.
@@ -1335,6 +1354,23 @@ function UserSettings({ profile }) {
     [withdrawOpen, setWithdrawOpen] = useState(false),
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false);
+  async function requestPasswordReset() {
+    const email = auth.currentUser?.email;
+    if (!email) {
+      setMsg("비밀번호 재설정 메일을 보낼 이메일 주소가 없습니다.");
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setMsg(`${email} 주소로 비밀번호 재설정 메일을 보냈습니다. 받은편지함과 스팸함을 확인해 주세요.`);
+    } catch (e) {
+      setMsg(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function withdraw(e) {
     e.preventDefault();
     const user = auth.currentUser;
@@ -1396,6 +1432,11 @@ function UserSettings({ profile }) {
           <dd>{won(profile.balance)}</dd>
         </div>
       </dl>
+      <section className="password-reset-section">
+        <h3>비밀번호</h3>
+        <p>현재 계정 이메일로 비밀번호 재설정 링크를 보냅니다.</p>
+        <button type="button" className="secondary" disabled={busy} onClick={requestPasswordReset}>비밀번호 찾기 및 재설정</button>
+      </section>
       {msg && <p className="notice">{msg}</p>}
       {!isRootAdmin(auth.currentUser) && (
         <section className="withdraw-section">
@@ -1626,6 +1667,11 @@ function App() {
 function AuthenticatedApp() {
   const { loading, user, profile, config, error } = useSession();
   const page = location.pathname.split("/").pop() || "index.html";
+  useEffect(() => {
+    if (!loading && user && profile && page === "index.html") {
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+    }
+  }, [loading, page, profile?.id, user?.uid]);
   if (loading) return <div className="loading">불러오는 중…</div>;
   if (error)
     return (
