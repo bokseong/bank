@@ -15,6 +15,8 @@
 | 악용 방지 | Firebase App Check + reCAPTCHA Enterprise/Fraud Defense | 비정상 웹 클라이언트와 토큰 재사용 요청 차단 |
 | 입금 알림 수집기 | Android Flutter 앱 | 1급 관리자 전용 로그인, 지정 은행 앱 알림의 로컬 감지·표시 |
 
+Firebase Storage는 파일 업로드·다운로드 기능이 없어 사용하지 않는다. 웹 설정에도 `storageBucket`을 지정하지 않으며, Functions 배포에 필요한 일반 Cloud Storage·Artifact Registry 서비스와 구분한다.
+
 > 실제 은행 송금·계좌이체는 사이트가 자동 실행하지 않습니다. 입금 확인 담당자가 실제 은행 거래내역을 대조한 뒤 포인트를 지급합니다.
 >
 > Android 수집기는 현재 **입금 알림을 기기에 기록하는 단계**까지만 구현되어 있다. 알림을 서버로 보내 자동 충전하는 기능은 `collector` Custom Claim, 등록 기기 공개키·서명, 허용 은행 앱 목록을 모두 갖춘 뒤에만 활성화할 수 있다.
