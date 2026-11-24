@@ -496,6 +496,19 @@ function DownloadPage() {
   );
 }
 function About() {
+  const [siteConfig, setSiteConfig] = useState(defaultConfig);
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, "settings", "config"),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setSiteConfig({ ...defaultConfig, ...snapshot.data() });
+        }
+      },
+      (error) => console.warn("사이트 이름 설정을 불러오지 못했습니다.", error),
+    );
+    return unsubscribe;
+  }, []);
   const legal = {
     terms: document.getElementById("terms-content")?.innerHTML || "",
     privacy: document.getElementById("privacy-content")?.innerHTML || "",
@@ -511,7 +524,7 @@ function About() {
   return (
     <main className="about-page">
       <header className="about-header">
-        <a className="brand" href={base}><SchoolLogo />복성고 축제은행</a>
+        <a className="brand" href={base}><SchoolLogo />{siteConfig.festivalName}</a>
         <button type="button" className="about-home-button" onClick={() => window.location.assign(base)}>
           메인 화면으로 돌아가기
         </button>
