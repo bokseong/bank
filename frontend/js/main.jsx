@@ -346,7 +346,8 @@ function Auth() {
         </form>
         <ProviderButtons busy={busy} onProvider={oauth} mode="로그인" />
         <small className="auth-help">
-          계정 발급 또는 비밀번호 재설정이 필요하면 축제은행 관리자에게 문의하세요.
+          로그인 및 회원가입 시 자동으로 이용약관 및 개인 정보 수집 및 이용에 동의한 것으로 간주됩니다.
+          이용약관 및 개인정보 수집 및 이용 동의는 <a href="https://bokseong.github.io/bank/frontend/about.html">여기서</a> 확인하시길 바랍니다.
         </small>
       </section>
     </main>
