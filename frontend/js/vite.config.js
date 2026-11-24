@@ -11,7 +11,7 @@ const pwaHead={
     const cleaned=html
       .replace(/<meta name="theme-color"[^>]*\/?\s*>/gi,'')
       .replace(/<link rel="manifest"[^>]*\/?\s*>/gi,'');
-    return cleaned.replace('</head>',`<meta name="theme-color" content="#1769c2"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/><meta name="apple-mobile-web-app-title" content="축제은행"/><link rel="manifest" href="${appBase}manifest.webmanifest"/><link rel="icon" href="${appBase}images/bokseong_cl.jpg" type="image/jpeg"/><link rel="apple-touch-icon" href="${appBase}images/bokseong_cl.jpg"/></head>`);
+    return cleaned.replace('</head>',`<meta name="theme-color" content="#1769c2"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/><meta name="apple-mobile-web-app-title" content="축제은행"/><link rel="manifest" href="${appBase}manifest.webmanifest"/><link rel="icon" href="${appBase}icons/app-icon-192.png" type="image/png"/><link rel="apple-touch-icon" href="${appBase}icons/app-icon-180.png"/></head>`);
   },
 };
 export default defineConfig({root,base:appBase,plugins:[react(),pwaHead],build:{outDir:'../dist',emptyOutDir:true,rollupOptions:{input:Object.fromEntries(pages.map(name=>[name,resolve(root,`${name}.html`)])),output:{manualChunks:{react:['react','react-dom'],firebase:['firebase/app','firebase/auth','firebase/firestore','firebase/analytics']}}}},test:{environment:'node',include:['js/**/*.test.js']}});
