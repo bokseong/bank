@@ -1672,6 +1672,7 @@ function Admin({ config, profile }) {
             ["paymentsEnabled", "결제"],
             ["topupEnabled", "충전 신청"],
             ["autoTopupEnabled", "은행 알림 자동 충전"],
+            ["refundEnabled", "환불·결제 취소"],
           ].map(([k, label]) => (
             <label className="switch-row" key={k}>
               <b>{label}</b>
@@ -1682,46 +1683,6 @@ function Admin({ config, profile }) {
               />
             </label>
           ))}
-        </div>
-        <div className="limit-grid">
-          <label>
-            최소 결제 금액
-            <input
-              inputMode="numeric"
-              value={form.minPayment}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  minPayment: e.target.value.replace(/\D/g, ""),
-                })
-              }
-            />
-          </label>
-          <label>
-            최대 결제 금액
-            <input
-              inputMode="numeric"
-              value={form.maxPayment}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  maxPayment: e.target.value.replace(/\D/g, ""),
-                })
-              }
-            />
-          </label>
-          <label>
-            1회 충전 한도
-            <input inputMode="numeric" value={form.maxTopupAmount || ""} onChange={(e) => setForm({ ...form, maxTopupAmount: e.target.value.replace(/\D/g, "") })} />
-          </label>
-          <label>
-            QR 유효 시간(초)
-            <input inputMode="numeric" value={form.qrExpirySeconds || ""} onChange={(e) => setForm({ ...form, qrExpirySeconds: e.target.value.replace(/\D/g, "") })} />
-          </label>
-        </div>
-        <div className="limit-grid">
-          <label>자동 충전 계좌 표시명<input maxLength="60" value={form.bankAccountLabel || ""} onChange={(e) => setForm({ ...form, bankAccountLabel: e.target.value })} placeholder="예: 복성고 학생회" /></label>
-          <label>자동 충전 계좌번호<input inputMode="numeric" maxLength="32" value={form.bankAccountNumber || ""} onChange={(e) => setForm({ ...form, bankAccountNumber: e.target.value.replace(/[^0-9-]/g, "") })} placeholder="- 없이 입력 권장" /></label>
         </div>
         <button>운영 설정 저장</button>
       </form>
