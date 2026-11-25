@@ -46,6 +46,35 @@ function safeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 function signedPayload(secret, timestamp, body) { return crypto.createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex"); }
+function sha256(value) { return crypto.createHash("sha256").update(String(value), "utf8").digest("hex"); }
+function safeHttpsUrl(value, field) {
+  let url;
+  try { url = new URL(String(value || "")); } catch { throw new HttpsError("invalid-argument", `${field} 주소가 올바르지 않습니다.`); }
+  if (url.protocol !== "https:" || url.username || url.password || url.hostname === "localhost" || /^(127\.|0\.|10\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(url.hostname)) {
+    throw new HttpsError("invalid-argument", `${field}에는 공용 HTTPS 주소만 사용할 수 있습니다.`);
+  }
+  return url.toString();
+}
+function externalMerchantId() { return `ext_${crypto.randomBytes(9).toString("hex")}`; }
+function externalApiKey() { return `bk_live_${crypto.randomBytes(32).toString("base64url")}`; }
+function externalCallbackSecret(merchantId) { return crypto.createHmac("sha256", reservationPaymentSecret.value()).update(`external-callback:${merchantId}`).digest("base64url"); }
+function requireExternalApiKey(req, merchant) {
+  const supplied = String(req.get("x-bank-api-key") || "");
+  if (!supplied || !merchant.apiKeyHash || !safeEqual(sha256(supplied), merchant.apiKeyHash)) throw new HttpsError("permission-denied", "외부 상점 API 키를 확인하지 못했습니다.");
+}
+function externalCallbackPayload(checkout, transactionId) {
+  return JSON.stringify({ checkoutId: checkout.id, externalOrderId: checkout.externalOrderId, bankTransactionId: transactionId, amount: checkout.amount, status: "paid", paidAt: Date.now() });
+}
+async function postExternalCallback(checkout, transactionId) {
+  const payload = externalCallbackPayload(checkout, transactionId);
+  const timestamp = String(Date.now());
+  const response = await fetch(checkout.callbackUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-bank-timestamp": timestamp, "x-bank-signature": signedPayload(externalCallbackSecret(checkout.merchantId), timestamp, payload) },
+    body: payload,
+  });
+  if (!response.ok) throw new Error(`external callback failed: ${response.status}`);
+}
 function parseReservationRequest(req) {
   if (req.method !== "POST") throw new HttpsError("invalid-argument", "POST 요청만 허용됩니다.");
   const timestamp = String(req.get("x-reservation-timestamp") || "");
@@ -323,4 +352,201 @@ export const respondPaymentReversal = onCall({ region: REGION, enforceAppCheck: 
   });
   await rtdb.ref(`operationalLogs/reversals/${transactionId}`).update({ event: result.status, respondedBy: request.auth.uid, at: Date.now() });
   return result;
+});
+
+// External merchant integration: shops request access, and only a level-1
+// administrator can activate or rotate credentials. Existing reservation APIs
+// remain separate and unchanged.
+export const submitExternalMerchantIntegration = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  rejectReplayedAppCheck(request);
+  const shopProfile = await requireActiveRole(request, ["shop", "booth"]);
+  const displayName = String(request.data?.displayName || shopProfile.name || "").trim().slice(0, 60);
+  const siteUrl = safeHttpsUrl(request.data?.siteUrl, "외부 사이트");
+  const callbackUrl = safeHttpsUrl(request.data?.callbackUrl, "결제 완료 콜백");
+  const returnUrl = safeHttpsUrl(request.data?.returnUrl, "결제 후 복귀");
+  if (!displayName) throw new HttpsError("invalid-argument", "연동 이름을 입력해 주세요.");
+  const requestRef = db.doc(`externalMerchantRequests/${request.auth.uid}`);
+  await requestRef.set({
+    ownerUid: request.auth.uid,
+    shopName: String(shopProfile.name || "상점").slice(0, 60),
+    displayName,
+    siteUrl,
+    callbackUrl,
+    returnUrl,
+    status: "pending",
+    requestedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+  await rtdb.ref(`operationalLogs/externalMerchants/${request.auth.uid}`).set({ event: "requested", by: request.auth.uid, at: Date.now() });
+  return { status: "pending" };
+});
+
+export const getMyExternalMerchantIntegration = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
+  await requireActiveRole(request, ["shop", "booth"]);
+  const requestSnap = await db.doc(`externalMerchantRequests/${request.auth.uid}`).get();
+  if (!requestSnap.exists) return { request: null, merchant: null };
+  const item = requestSnap.data();
+  let merchant = null;
+  if (item.merchantId) {
+    const merchantSnap = await db.doc(`externalMerchants/${item.merchantId}`).get();
+    if (merchantSnap.exists) {
+      const data = merchantSnap.data();
+      merchant = { id: merchantSnap.id, status: data.status, displayName: data.displayName, siteUrl: data.siteUrl, callbackUrl: data.callbackUrl, returnUrl: data.returnUrl };
+    }
+  }
+  return { request: { status: item.status, displayName: item.displayName, siteUrl: item.siteUrl, callbackUrl: item.callbackUrl, returnUrl: item.returnUrl, merchantId: item.merchantId || null, rejectionReason: item.rejectionReason || "" }, merchant };
+});
+
+export const listExternalMerchantIntegrations = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
+  await requireActiveRole(request, ["admin1", "admin"]);
+  const [requests, merchants] = await Promise.all([db.collection("externalMerchantRequests").get(), db.collection("externalMerchants").get()]);
+  return {
+    requests: requests.docs.map((item) => ({ id: item.id, ...item.data() })),
+    merchants: merchants.docs.map((item) => ({ id: item.id, ...item.data(), apiKeyHash: undefined })),
+  };
+});
+
+export const approveExternalMerchantIntegration = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true, secrets: [reservationPaymentSecret] }, async (request) => {
+  rejectReplayedAppCheck(request);
+  await requireActiveRole(request, ["admin1", "admin"]);
+  const ownerUid = String(request.data?.ownerUid || "").trim();
+  const approved = request.data?.approved === true;
+  const rejectionReason = String(request.data?.rejectionReason || "").trim().slice(0, 160);
+  if (!ownerUid) throw new HttpsError("invalid-argument", "연동 신청을 찾을 수 없습니다.");
+  const requestRef = db.doc(`externalMerchantRequests/${ownerUid}`);
+  const result = await db.runTransaction(async (tx) => {
+    const requestSnap = await tx.get(requestRef);
+    if (!requestSnap.exists) throw new HttpsError("not-found", "연동 신청을 찾을 수 없습니다.");
+    const item = requestSnap.data();
+    if (!approved) {
+      tx.set(requestRef, { status: "rejected", rejectionReason: rejectionReason || "관리자가 신청을 반려했습니다.", reviewedBy: request.auth.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return { approved: false };
+    }
+    const merchantId = item.merchantId || externalMerchantId();
+    const apiKey = externalApiKey();
+    const merchantRef = db.doc(`externalMerchants/${merchantId}`);
+    tx.set(merchantRef, {
+      ownerUid,
+      shopName: String(item.shopName || "상점").slice(0, 60),
+      displayName: String(item.displayName || "외부 상점").slice(0, 60),
+      siteUrl: safeHttpsUrl(item.siteUrl, "외부 사이트"),
+      callbackUrl: safeHttpsUrl(item.callbackUrl, "결제 완료 콜백"),
+      returnUrl: safeHttpsUrl(item.returnUrl, "결제 후 복귀"),
+      status: "active",
+      apiKeyHash: sha256(apiKey),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      approvedBy: request.auth.uid,
+    }, { merge: true });
+    tx.set(requestRef, { status: "approved", merchantId, reviewedBy: request.auth.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), rejectionReason: FieldValue.delete() }, { merge: true });
+    return { approved: true, merchantId, apiKey, callbackSecret: externalCallbackSecret(merchantId), callbackUrl: item.callbackUrl, returnUrl: item.returnUrl };
+  });
+  await rtdb.ref(`operationalLogs/externalMerchants/${ownerUid}`).set({ event: approved ? "approved" : "rejected", by: request.auth.uid, at: Date.now() });
+  return result;
+});
+
+export const setExternalMerchantStatus = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true }, async (request) => {
+  rejectReplayedAppCheck(request);
+  await requireActiveRole(request, ["admin1", "admin"]);
+  const merchantId = String(request.data?.merchantId || "").trim();
+  const status = request.data?.status === "disabled" ? "disabled" : "active";
+  if (!/^ext_[a-f0-9]{18}$/.test(merchantId)) throw new HttpsError("invalid-argument", "외부 상점 식별자가 올바르지 않습니다.");
+  await db.doc(`externalMerchants/${merchantId}`).set({ status, updatedAt: FieldValue.serverTimestamp(), updatedBy: request.auth.uid }, { merge: true });
+  return { merchantId, status };
+});
+
+export const rotateExternalMerchantApiKey = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true, secrets: [reservationPaymentSecret] }, async (request) => {
+  rejectReplayedAppCheck(request);
+  await requireActiveRole(request, ["admin1", "admin"]);
+  const merchantId = String(request.data?.merchantId || "").trim();
+  if (!/^ext_[a-f0-9]{18}$/.test(merchantId)) throw new HttpsError("invalid-argument", "외부 상점 식별자가 올바르지 않습니다.");
+  const merchantRef = db.doc(`externalMerchants/${merchantId}`), merchant = await merchantRef.get();
+  if (!merchant.exists) throw new HttpsError("not-found", "외부 상점을 찾을 수 없습니다.");
+  const apiKey = externalApiKey();
+  await merchantRef.update({ apiKeyHash: sha256(apiKey), updatedAt: FieldValue.serverTimestamp(), updatedBy: request.auth.uid });
+  return { merchantId, apiKey, callbackSecret: externalCallbackSecret(merchantId), callbackUrl: merchant.data().callbackUrl, returnUrl: merchant.data().returnUrl };
+});
+
+// Server-to-server endpoint for an approved external merchant. It accepts a
+// one-time API key in a request header and never trusts an amount from a browser.
+export const createExternalCheckout = onRequest({ region: REGION, secrets: [reservationPaymentSecret], cors: false }, async (req, res) => {
+  try {
+    if (req.method !== "POST") throw new HttpsError("invalid-argument", "POST 요청만 허용됩니다.");
+    const merchantId = String(req.get("x-bank-merchant") || "").trim();
+    if (!/^ext_[a-f0-9]{18}$/.test(merchantId)) throw new HttpsError("permission-denied", "외부 상점 식별자를 확인하지 못했습니다.");
+    const merchantRef = db.doc(`externalMerchants/${merchantId}`), merchantSnap = await merchantRef.get();
+    if (!merchantSnap.exists || merchantSnap.data().status !== "active") throw new HttpsError("permission-denied", "승인된 외부 상점이 아닙니다.");
+    const merchant = merchantSnap.data();
+    requireExternalApiKey(req, merchant);
+    const externalOrderId = String(req.body?.externalOrderId || "").trim();
+    const title = String(req.body?.title || "").trim().slice(0, 80);
+    const amount = positiveInteger(req.body?.amount, "결제 금액");
+    if (!/^[A-Za-z0-9_-]{8,160}$/.test(externalOrderId) || !title) throw new HttpsError("invalid-argument", "외부 주문 정보가 올바르지 않습니다.");
+    const configSnap = await db.doc("settings/config").get(), config = configSnap.exists ? configSnap.data() : {};
+    if (config.systemOpen === false || config.paymentsEnabled === false || amount < Number(config.minPayment || 1) || amount > Number(config.maxPayment || 1000000)) throw new HttpsError("failed-precondition", "현재 허용되지 않는 결제 금액입니다.");
+    const checkoutId = crypto.createHash("sha256").update(`${merchantId}:${externalOrderId}`).digest("hex");
+    const checkoutRef = db.doc(`externalCheckouts/${checkoutId}`);
+    const checkout = await db.runTransaction(async (tx) => {
+      const existing = await tx.get(checkoutRef);
+      if (existing.exists) {
+        const data = existing.data();
+        if (data.amount !== amount || data.title !== title || data.merchantId !== merchantId) throw new HttpsError("already-exists", "기존 주문 정보와 일치하지 않습니다.");
+        return { id: checkoutRef.id, ...data };
+      }
+      const data = { merchantId, merchantUid: merchant.ownerUid, merchantName: merchant.displayName, externalOrderId, title, amount, callbackUrl: merchant.callbackUrl, returnUrl: merchant.returnUrl, status: "pending", callbackState: "pending", createdAt: FieldValue.serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + RESERVATION_CHECKOUT_TTL_MS) };
+      tx.create(checkoutRef, data);
+      return { id: checkoutRef.id, ...data };
+    });
+    res.status(200).json({ checkoutId: checkout.id, paymentUrl: `https://bokseong.github.io/bank/payment.html?externalCheckout=${encodeURIComponent(checkout.id)}`, expiresAt: checkout.expiresAt?.toMillis?.() || Date.now() + RESERVATION_CHECKOUT_TTL_MS });
+  } catch (error) {
+    logger.warn("external checkout rejected", { message: error.message });
+    res.status(error instanceof HttpsError && error.code === "permission-denied" ? 403 : 400).json({ error: error.message || "외부 결제 요청을 처리할 수 없습니다." });
+  }
+});
+
+export const getExternalCheckout = onCall({ region: REGION, enforceAppCheck: true }, async (request) => {
+  await requireActiveRole(request, ["member", "student", "admin1", "admin", "admin2"]);
+  const checkoutId = String(request.data?.checkoutId || "").trim();
+  if (!/^[a-f0-9]{64}$/.test(checkoutId)) throw new HttpsError("invalid-argument", "외부 결제 요청을 찾을 수 없습니다.");
+  const snapshot = await db.doc(`externalCheckouts/${checkoutId}`).get();
+  if (!snapshot.exists) throw new HttpsError("not-found", "외부 결제 요청을 찾을 수 없습니다.");
+  const item = snapshot.data();
+  if (item.status === "pending" && item.expiresAt?.toMillis?.() <= Date.now()) throw new HttpsError("failed-precondition", "결제 시간이 만료되었습니다. 외부 사이트에서 다시 시도해 주세요.");
+  return { checkout: { id: snapshot.id, merchantName: item.merchantName, title: item.title, amount: item.amount, status: item.status } };
+});
+
+export const payExternalCheckout = onCall({ region: REGION, enforceAppCheck: true, consumeAppCheckToken: true, secrets: [reservationPaymentSecret] }, async (request) => {
+  rejectReplayedAppCheck(request);
+  await requireActiveRole(request, ["member", "student", "admin1", "admin", "admin2"]);
+  const checkoutId = String(request.data?.checkoutId || "").trim();
+  if (!/^[a-f0-9]{64}$/.test(checkoutId)) throw new HttpsError("invalid-argument", "외부 결제 요청을 찾을 수 없습니다.");
+  const checkoutRef = db.doc(`externalCheckouts/${checkoutId}`), transactionRef = db.collection("transactions").doc();
+  const result = await db.runTransaction(async (tx) => {
+    const checkoutSnap = await tx.get(checkoutRef);
+    if (!checkoutSnap.exists) throw new HttpsError("not-found", "외부 결제 요청을 찾을 수 없습니다.");
+    const checkout = checkoutSnap.data();
+    if (checkout.status === "paid") return { alreadyPaid: true, transactionId: checkout.transactionId, checkout: { id: checkoutSnap.id, ...checkout } };
+    if (checkout.status !== "pending" || checkout.expiresAt?.toMillis?.() <= Date.now()) throw new HttpsError("failed-precondition", "결제 요청이 만료되었거나 사용할 수 없습니다.");
+    const [payerSnap, merchantSnap, configSnap] = await Promise.all([tx.get(db.doc(`users/${request.auth.uid}`)), tx.get(db.doc(`users/${checkout.merchantUid}`)), tx.get(db.doc("settings/config"))]);
+    const config = configSnap.exists ? configSnap.data() : {};
+    if (config.systemOpen === false || config.paymentsEnabled === false) throw new HttpsError("failed-precondition", "현재 결제가 중지되어 있습니다.");
+    if (!payerSnap.exists || payerSnap.data().status !== "active" || Number(payerSnap.data().balance || 0) < checkout.amount) throw new HttpsError("failed-precondition", "포인트 잔액이 부족합니다.");
+    if (!merchantSnap.exists || merchantSnap.data().status !== "active" || !["shop", "booth"].includes(merchantSnap.data().role)) throw new HttpsError("failed-precondition", "상점 계정을 사용할 수 없습니다.");
+    tx.update(payerSnap.ref, { balance: Number(payerSnap.data().balance || 0) - checkout.amount, lastTransactionId: transactionRef.id, updatedAt: FieldValue.serverTimestamp() });
+    tx.update(merchantSnap.ref, { balance: Number(merchantSnap.data().balance || 0) + checkout.amount, lastTransactionId: transactionRef.id, updatedAt: FieldValue.serverTimestamp() });
+    tx.update(checkoutRef, { status: "paid", payerUid: request.auth.uid, transactionId: transactionRef.id, paidAt: FieldValue.serverTimestamp(), callbackState: "pending" });
+    tx.create(transactionRef, { type: "external_payment", payerUid: request.auth.uid, boothUid: checkout.merchantUid, boothName: checkout.merchantName, amount: checkout.amount, memo: `${checkout.title} 외부 결제`.slice(0, 120), externalOrderId: checkout.externalOrderId, checkoutId: checkoutSnap.id, participantUids: [request.auth.uid, checkout.merchantUid], createdAt: FieldValue.serverTimestamp() });
+    return { alreadyPaid: false, transactionId: transactionRef.id, checkout: { id: checkoutSnap.id, ...checkout } };
+  });
+  try {
+    await postExternalCallback(result.checkout, result.transactionId);
+    await checkoutRef.set({ callbackState: "delivered", callbackDeliveredAt: FieldValue.serverTimestamp() }, { merge: true });
+  } catch (error) {
+    await checkoutRef.set({ callbackState: "failed", callbackError: String(error.message || error).slice(0, 300), callbackLastAttemptAt: FieldValue.serverTimestamp() }, { merge: true });
+    logger.error("external payment callback failed", { checkoutId, transactionId: result.transactionId, error: String(error.message || error) });
+  }
+  const returnUrl = new URL(result.checkout.returnUrl);
+  returnUrl.searchParams.set("bankCheckout", checkoutId);
+  returnUrl.searchParams.set("paymentResult", "paid");
+  return { ok: true, alreadyPaid: result.alreadyPaid, returnUrl: returnUrl.toString() };
 });

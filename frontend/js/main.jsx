@@ -68,7 +68,7 @@ const roles = {
     admin2: "2급 관리자",
     deposit_checker: "입금 확인 담당자",
   },
-  types = { payment: "결제", reservation_payment: "예약 결제", topup: "충전", refund: "환불", cancellation: "결제 취소", adjustment: "포인트 조절" },
+  types = { payment: "결제", reservation_payment: "예약 결제", external_payment: "외부 사이트 결제", topup: "충전", refund: "환불", cancellation: "결제 취소", adjustment: "포인트 조절" },
   legacyRoles = { student: "member", booth: "shop", admin: "admin1" };
 const base = import.meta.env.BASE_URL;
 const googleProvider = new GoogleAuthProvider(),
@@ -959,6 +959,7 @@ function Scanner({ onRead, onClose }) {
 function Pay({ profile, config }) {
   const [invoice, setInvoice] = useState(null),
     [reservationCheckout, setReservationCheckout] = useState(null),
+    [externalCheckout, setExternalCheckout] = useState(null),
     [scanning, setScanning] = useState(false),
     [busy, setBusy] = useState(false),
     [msg, setMsg] = useState("");
@@ -995,10 +996,18 @@ function Pay({ profile, config }) {
         .catch((error) => setMsg(friendlyError(error)))
         .finally(() => setBusy(false));
     }
+    const externalCheckoutId = params.get("externalCheckout");
+    if (externalCheckoutId) {
+      setBusy(true);
+      httpsCallable(functions, "getExternalCheckout")({ checkoutId: externalCheckoutId })
+        .then((result) => { setExternalCheckout(result.data.checkout); setMsg(""); })
+        .catch((error) => setMsg(friendlyError(error)))
+        .finally(() => setBusy(false));
+    }
   }, []);
   async function pay(e) {
     e.preventDefault();
-    const payable = reservationCheckout || invoice;
+    const payable = externalCheckout || reservationCheckout || invoice;
     if (!payable || !config.paymentsEnabled) return;
     if (payable.amount > profile.balance) return setMsg("잔액이 부족합니다.");
     setBusy(true);
@@ -1006,6 +1015,11 @@ function Pay({ profile, config }) {
     try {
       if (reservationCheckout) {
         const result = await httpsCallable(functions, "payReservationCheckout")({ checkoutId: reservationCheckout.id });
+        location.assign(result.data.returnUrl);
+        return;
+      }
+      if (externalCheckout) {
+        const result = await httpsCallable(functions, "payExternalCheckout")({ checkoutId: externalCheckout.id });
         location.assign(result.data.returnUrl);
         return;
       }
@@ -1030,14 +1044,14 @@ function Pay({ profile, config }) {
   }
   return (
     <section className="panel pay">
-      <h2>{reservationCheckout ? "먹거리 예약 결제" : "QR 결제"}</h2>
+      <h2>{externalCheckout ? "외부 사이트 결제" : reservationCheckout ? "먹거리 예약 결제" : "QR 결제"}</h2>
       {!config.paymentsEnabled ? (
         <div className="error">현재 결제가 중지되어 있습니다.</div>
       ) : (
         <>
           {scanning ? (
             <Scanner onRead={read} onClose={() => setScanning(false)} />
-          ) : !invoice && !reservationCheckout ? (
+          ) : !invoice && !reservationCheckout && !externalCheckout ? (
             <div className="scan-start">
               <Camera />
               <h3>부스의 결제 QR을 스캔하세요</h3>
@@ -1050,22 +1064,22 @@ function Pay({ profile, config }) {
             <form onSubmit={pay} className="invoice">
               <div className="invoice-title">
                 <span>결제 상점</span>
-                <strong>{reservationCheckout ? "복성고 먹거리 예약" : invoice.shopName}</strong>
+                <strong>{externalCheckout ? externalCheckout.merchantName : reservationCheckout ? "복성고 먹거리 예약" : invoice.shopName}</strong>
               </div>
               <div className="invoice-amount">
                 <span>결제 금액</span>
-                <strong>{won((reservationCheckout || invoice).amount)}</strong>
+                <strong>{won((externalCheckout || reservationCheckout || invoice).amount)}</strong>
               </div>
-              <p>{reservationCheckout ? `예약 메뉴: ${reservationCheckout.menuName}` : `상품: ${invoice.productName} ${invoice.quantity}개`}</p>
+              <p>{externalCheckout ? `주문: ${externalCheckout.title}` : reservationCheckout ? `예약 메뉴: ${reservationCheckout.menuName}` : `상품: ${invoice.productName} ${invoice.quantity}개`}</p>
               <button disabled={busy}>
-                {busy ? "결제 처리 중…" : `${won((reservationCheckout || invoice).amount)} 결제`}
+                {busy ? "결제 처리 중…" : `${won((externalCheckout || reservationCheckout || invoice).amount)} 결제`}
               </button>
               <button
                 type="button"
                 className="secondary"
-                onClick={() => reservationCheckout ? location.assign(`${base}index.html`) : setInvoice(null)}
+                onClick={() => externalCheckout || reservationCheckout ? location.assign(`${base}index.html`) : setInvoice(null)}
               >
-                {reservationCheckout ? "은행 홈으로" : "다시 스캔"}
+                {externalCheckout || reservationCheckout ? "은행 홈으로" : "다시 스캔"}
               </button>
             </form>
           )}
@@ -1185,10 +1199,51 @@ function Shop({ profile, config }) {
           </div>
         </div>
       </section>
+      <ExternalMerchantIntegration />
       {msg && <p className="notice">{msg}</p>}
       <HistoryList uid={profile.id} canCancel />
     </>
   );
+}
+function ExternalMerchantIntegration() {
+  const [form, setForm] = useState({ displayName: "", siteUrl: "", callbackUrl: "", returnUrl: "" }),
+    [integration, setIntegration] = useState(null),
+    [msg, setMsg] = useState(""),
+    [busy, setBusy] = useState(true);
+  const load = async () => {
+    setBusy(true);
+    try {
+      const result = await httpsCallable(functions, "getMyExternalMerchantIntegration")();
+      const item = result.data?.request;
+      setIntegration(item || null);
+      if (item) setForm({ displayName: item.displayName || "", siteUrl: item.siteUrl || "", callbackUrl: item.callbackUrl || "", returnUrl: item.returnUrl || "" });
+    } catch (error) { setMsg(friendlyError(error)); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true); setMsg("");
+    try {
+      await httpsCallable(functions, "submitExternalMerchantIntegration")(form);
+      setMsg("외부 사이트 연동 신청을 제출했습니다. 1급 관리자의 승인을 기다려 주세요.");
+      await load();
+    } catch (error) { setMsg(friendlyError(error)); setBusy(false); }
+  }
+  const active = integration?.status === "approved";
+  return <section className="panel external-integration">
+    <h2>외부 사이트 연결</h2>
+    <p>외부 예약·주문 사이트에서 축제은행 결제를 사용하려면 연동을 신청하세요. API Key는 승인 후 1급 관리자를 통해 서버 담당자에게만 전달됩니다.</p>
+    {active ? <div className="success"><b>연동 승인 완료</b><br />Merchant ID: {integration.merchantId}<br />API Key와 콜백 검증값은 보안상 이 화면에 다시 표시되지 않습니다. 1급 관리자에게 재발급을 요청하세요.</div> : <form onSubmit={submit}>
+      <label>연동 이름<input required maxLength="60" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} placeholder="예: 복성고 먹거리 예약" /></label>
+      <label>외부 사이트 주소<input required type="url" value={form.siteUrl} onChange={(e) => setForm({ ...form, siteUrl: e.target.value })} placeholder="https://example.com" /></label>
+      <label>결제 완료 콜백 URL<input required type="url" value={form.callbackUrl} onChange={(e) => setForm({ ...form, callbackUrl: e.target.value })} placeholder="https://example.com/api/bank/payment-callback" /></label>
+      <label>결제 후 복귀 URL<input required type="url" value={form.returnUrl} onChange={(e) => setForm({ ...form, returnUrl: e.target.value })} placeholder="https://example.com/payment/result" /></label>
+      <button disabled={busy}>{busy ? "불러오는 중…" : integration?.status === "rejected" ? "연동 재신청" : "외부 사이트 연동 신청"}</button>
+    </form>}
+    {integration && !active && <p className={integration.status === "rejected" ? "error" : "hint"}>상태: {integration.status === "pending" ? "승인 대기" : "반려"}{integration.rejectionReason ? ` · ${integration.rejectionReason}` : ""}</p>}
+    {msg && <p className="notice">{msg}</p>}
+  </section>;
 }
 function AutoTopUp({ profile, config }) {
   const [amount, setAmount] = useState("5000"), [order, setOrder] = useState(null), [msg, setMsg] = useState(""), [busy, setBusy] = useState(false), [now, setNow] = useState(Date.now());
@@ -1481,12 +1536,60 @@ function StudentCouncilSummary() {
   </section>;
 }
 
-function Admin({ config }) {
+function ExternalMerchantAdmin() {
+  const [data, setData] = useState({ requests: [], merchants: [] }),
+    [msg, setMsg] = useState(""),
+    [issued, setIssued] = useState(null),
+    [busy, setBusy] = useState(false);
+  const load = async () => {
+    setBusy(true);
+    try { setData((await httpsCallable(functions, "listExternalMerchantIntegrations")()).data); }
+    catch (error) { setMsg(friendlyError(error)); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => { void load(); }, []);
+  async function approve(ownerUid, approved) {
+    if (!approved && !window.confirm("이 외부 사이트 연동 신청을 반려합니까?")) return;
+    setBusy(true); setMsg("");
+    try {
+      const result = await httpsCallable(functions, "approveExternalMerchantIntegration")({ ownerUid, approved });
+      if (approved) setIssued(result.data);
+      setMsg(approved ? "연동을 승인하고 새 API Key를 발급했습니다. 아래 값을 담당자에게 안전하게 전달하세요." : "연동 신청을 반려했습니다.");
+      await load();
+    } catch (error) { setMsg(friendlyError(error)); setBusy(false); }
+  }
+  async function setStatus(merchantId, status) {
+    if (!window.confirm(status === "disabled" ? "이 외부 사이트 연동을 중지합니까?" : "이 외부 사이트 연동을 다시 활성화합니까?")) return;
+    setBusy(true); setMsg("");
+    try { await httpsCallable(functions, "setExternalMerchantStatus")({ merchantId, status }); await load(); }
+    catch (error) { setMsg(friendlyError(error)); setBusy(false); }
+  }
+  async function rotate(merchantId) {
+    if (!window.confirm("기존 API Key는 즉시 무효화됩니다. 새 키를 발급합니까?")) return;
+    setBusy(true); setMsg("");
+    try { setIssued((await httpsCallable(functions, "rotateExternalMerchantApiKey")({ merchantId })).data); setMsg("새 API Key를 발급했습니다. 기존 키는 더 이상 사용할 수 없습니다."); }
+    catch (error) { setMsg(friendlyError(error)); }
+    finally { setBusy(false); }
+  }
+  return <section className="panel external-admin">
+    <div className="section-heading"><div><h2>외부 사이트 연결</h2><p className="hint">상점이 신청한 외부 결제 연동을 승인하고 API Key를 발급합니다.</p></div><button type="button" className="secondary" disabled={busy} onClick={load}>새로고침</button></div>
+    {issued && <div className="external-secret"><h3>발급 정보 — 지금만 표시됩니다</h3><p>API Key와 콜백 검증값은 외부 사이트의 서버 환경변수에만 저장하세요.</p><label>Merchant ID<input readOnly value={issued.merchantId} /></label><label>API Key<input readOnly value={issued.apiKey} /></label><label>콜백 검증값<input readOnly value={issued.callbackSecret} /></label><label>등록된 Callback URL<input readOnly value={issued.callbackUrl} /></label><label>등록된 복귀 URL<input readOnly value={issued.returnUrl} /></label></div>}
+    <h3>승인 대기</h3>
+    <div className="list">{!data.requests.filter((item) => item.status === "pending").length && <div className="empty">승인 대기 중인 신청이 없습니다.</div>}{data.requests.filter((item) => item.status === "pending").map((item) => <article className="external-merchant-row" key={item.id}><div><b>{item.displayName}</b><small>{item.shopName} · {item.siteUrl}</small><small>Callback: {item.callbackUrl}</small><small>복귀: {item.returnUrl}</small></div><div><button disabled={busy} onClick={() => approve(item.ownerUid, true)}>승인·키 발급</button><button className="danger" disabled={busy} onClick={() => approve(item.ownerUid, false)}>반려</button></div></article>)}</div>
+    <h3>승인된 외부 사이트</h3>
+    <div className="list">{!data.merchants.length && <div className="empty">승인된 외부 사이트가 없습니다.</div>}{data.merchants.map((merchant) => <article className="external-merchant-row" key={merchant.id}><div><b>{merchant.displayName}</b><small>{merchant.id} · {merchant.shopName}</small><small>{merchant.siteUrl}</small><small>상태: {merchant.status === "active" ? "활성" : "중지"}</small></div><div><button className="secondary" disabled={busy} onClick={() => rotate(merchant.id)}>키 재발급</button><button className={merchant.status === "active" ? "danger" : "secondary"} disabled={busy} onClick={() => setStatus(merchant.id, merchant.status === "active" ? "disabled" : "active")}>{merchant.status === "active" ? "연동 중지" : "연동 활성화"}</button></div></article>)}</div>
+    {msg && <p className="notice">{msg}</p>}
+  </section>;
+}
+function Admin({ config, profile }) {
   const [users, setUsers] = useState([]),
     [form, setForm] = useState(config),
-    [msg, setMsg] = useState("");
+    [msg, setMsg] = useState(""),
+    [section, setSection] = useState("general");
+  const canManage = isAdmin1(profile);
   useEffect(() => setForm(config), [config]);
   useEffect(() => {
+    if (!canManage) return undefined;
     const a = onSnapshot(
       query(collection(db, "users"), orderBy("createdAt", "desc")),
       (s) => setUsers(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
@@ -1494,7 +1597,7 @@ function Admin({ config }) {
     return () => {
       a();
     };
-  }, []);
+  }, [canManage]);
   async function changeRole(u, role) {
     try {
       await updateDoc(doc(db, "users", u.id), { role, status: u.status === "suspended" ? "suspended" : "active", updatedAt: serverTimestamp() });
@@ -1511,6 +1614,7 @@ function Admin({ config }) {
   }
   async function save(e) {
     e.preventDefault();
+    if (!canManage) return;
     const min = validAmount(form.minPayment),
       max = validAmount(form.maxPayment);
     if (!min || !max || min > max)
@@ -1523,6 +1627,17 @@ function Admin({ config }) {
   const activeUsers = users.filter((x) => x.status === "active");
   return (
     <>
+      <section className="panel admin-menu">
+        <h2>관리자 메뉴</h2>
+        <div className="admin-menu-buttons">
+          <button type="button" className={section === "general" ? "active" : "secondary"} onClick={() => setSection("general")}>일반 관리</button>
+          {canManage && <button type="button" className={section === "roles" ? "active" : "secondary"} onClick={() => setSection("roles")}>권한 관리</button>}
+          {canManage && <button type="button" className={section === "external" ? "active" : "secondary"} onClick={() => setSection("external")}>외부 사이트 연결</button>}
+        </div>
+        {!canManage && <p className="hint">2급 관리자는 시스템 이름과 기능 허용 상태만 조회할 수 있습니다.</p>}
+      </section>
+      {msg && <p className="notice">{msg}</p>}
+      {section === "general" && canManage && <>
       <section className="stats">
         <article>
           <span>사용자</span>
@@ -1610,7 +1725,9 @@ function Admin({ config }) {
         </div>
         <button>운영 설정 저장</button>
       </form>
-      {msg && <p className="notice">{msg}</p>}
+      </>}
+      {section === "general" && !canManage && <section className="panel admin-readonly"><h2>사이트 운영 현황</h2><dl><div><dt>축제은행 이름</dt><dd>{config.festivalName}</dd></div><div><dt>사이트 운영</dt><dd>{config.systemOpen ? "허용" : "중지"}</dd></div><div><dt>결제</dt><dd>{config.paymentsEnabled ? "허용" : "중지"}</dd></div><div><dt>충전 신청</dt><dd>{config.topupEnabled ? "허용" : "중지"}</dd></div><div><dt>은행 알림 자동 충전</dt><dd>{config.autoTopupEnabled ? "허용" : "중지"}</dd></div></dl></section>}
+      {canManage && section === "roles" && <>
       <section className="panel">
         <h2>계정 현황</h2>
         <div className="account-table-wrap">
@@ -1636,6 +1753,8 @@ function Admin({ config }) {
       </section>
       <section className="panel"><h2>정산 안내</h2><p>포인트는 현금으로 환급하거나 출금하지 않습니다. 축제 종료 후 남은 포인트는 지역 불우이웃 돕기 센터에 기부할 예정입니다. 결제 건 환불·결제 취소는 거래 내역에서 상대방 동의로 즉시 처리됩니다.</p></section>
       <HistoryList admin />
+      </>}
+      {canManage && section === "external" && <ExternalMerchantAdmin />}
     </>
   );
 }
@@ -1714,7 +1833,7 @@ function AuthenticatedApp() {
   else if (page === "history.html")
     content = <HistoryList uid={profile.id} admin={isAdmin1(profile)} canPay={profile.role !== "shop" && !isDepositChecker(profile)} canCancel={["member", "shop"].includes(profile.role)} />;
   else if (page === "settings.html") content = <UserSettings profile={profile} />;
-  else if (page === "admin.html") content = isAdmin1(profile) ? <Admin config={config} /> : <AccessDenied />;
+  else if (page === "admin.html") content = isAdmin2(profile) ? <Admin config={config} profile={profile} /> : <AccessDenied />;
   else if (page === "points.html") content = isAdmin2(profile) ? <PointControl profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "topup.html") content = profile.role === "member" ? <AutoTopUp profile={profile} config={config} /> : <AccessDenied />;
   else if (page === "deposit.html") content = isDepositChecker(profile) ? <DepositReview /> : <AccessDenied />;
@@ -1741,6 +1860,7 @@ function AuthenticatedApp() {
         : profile.role === "admin2"
           ? [
             ["index.html", Building2, "홈"],
+            ["admin.html", ShieldCheck, "관리"],
             ["points.html", Banknote, "포인트"],
             ["history.html", History, "거래"],
             ["settings.html", Settings, "내 정보"],
