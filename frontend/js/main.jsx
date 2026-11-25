@@ -317,10 +317,10 @@ function Auth() {
           복성고 축제은행
         </div>
         <h1>
-          현금 없이 더<br />
-          가볍게 즐기는 축제
+          online banking system<br>
+          for Suncheon Bokseong High Scgool
         </h1>
-        <p>안전하게 결제하고 실시간으로 잔액을 확인하세요.</p>
+        <p>안전하고 빠르게 결제하세요!</p>
         <div className="hero-points">
           <span>
             <ShieldCheck />
@@ -524,7 +524,7 @@ function About() {
           setSiteConfig({ ...defaultConfig, ...snapshot.data() });
         }
       },
-      (error) => console.warn("사이트 이름 설정을 불러오지 못했습니다.", error),
+      (error) => console.warn("사이트 db에서 설정을 불러오지 못했습니다.", error),
     );
     return unsubscribe;
   }, []);
